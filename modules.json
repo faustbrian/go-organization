@@ -24,7 +24,7 @@
       "purpose": "Planned storage-neutral organization core for organizations, memberships, invitations, teams, role assignments, ownership transfer, domain claims, and lifecycle policy; no runtime package is implemented or released.",
       "lifecycle": "planned",
       "kind": "public library",
-      "releasable": true,
+      "releasable": false,
       "family": "service-edge",
       "family_label": "Service Edge",
       "family_description": "Request-edge policy, identity, access decisions, routing, middleware, and process lifecycle.",
@@ -99,7 +99,7 @@
           "readme": "README.md",
           "api": null,
           "adoption": null,
-          "security": null,
+          "security": "docs/security.md",
           "compatibility": null,
           "performance": null,
           "examples": null,
@@ -112,7 +112,7 @@
         "delivery": {
           "implementation": "not-started",
           "hardening": "not-started",
-          "release": "not-started"
+          "release": "blocked"
         }
       },
       "gates": {
