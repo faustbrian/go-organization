@@ -1,5 +1,7 @@
 # Planned security model
 
+[Documentation index](README.md) · [Repository entry](../README.md)
+
 This repository contains planning metadata only. It has no runtime package,
 public API, parser, persistence adapter, network operation, background work, or
 supported release. The controls below are release requirements, not claims
@@ -60,3 +62,6 @@ must not infer those capabilities from ambient process state.
 - **Review condition:** reassess only after implementation, a complete threat
   model, executable hostile and concurrency evidence, scanner results, API and
   migration policy, and independent Tier C review are present.
+
+Choose the next guide in the [documentation index](README.md)
+or return to the [repository entry](../README.md) for installation and ownership.

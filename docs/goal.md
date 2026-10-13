@@ -1,5 +1,7 @@
 # Goal: planned go-organization boundary
 
+[Documentation index](README.md) · [Repository entry](../README.md)
+
 Status: planned
 
 The coordination plan identifies `github.com/faustbrian/go-organization` as
@@ -35,3 +37,6 @@ Source packages, nested modules, dependencies, API contracts, behavior,
 hardening evidence, compatibility commitments, tags, and releases remain
 outside this planning-only goal. They require separately authorized work and
 their own executable acceptance evidence.
+
+Choose the next guide in the [documentation index](README.md)
+or return to the [repository entry](../README.md) for installation and ownership.
