@@ -12,3 +12,4 @@ proof of full-unit completion.
 - [Planned security model](security.md) — `docs/security.md`
 - [Selected team lifecycle](team-lifecycle.md) — `docs/team-lifecycle.md`
 - [Selected ownership transfer](owner-transfer.md) — `docs/owner-transfer.md`
+- [Selected member self-leave](member-leave.md) — `docs/member-leave.md`

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add explicit self-only organization leave with exact organization policy
+  version, last-owner protection and current membership disclosure semantics.
+  Leaving never revokes unrelated global password/session authority.
+
 - Add an atomic owner-transfer profile for an existing active member, with
   exact organization and both membership versions. The former owner becomes
   an ordinary member; both scoped authority epochs advance without changing

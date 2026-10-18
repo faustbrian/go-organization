@@ -29,6 +29,9 @@ contracts are adapter boundaries, not application workflow instructions.
   expected organization/member versions. Administrators cannot add owners.
 - `PrepareRemoveMember` requires exact versions and retains a tombstone. Only
   owners remove owners; the final owner cannot be removed.
+- `PrepareLeaveMember` accepts an explicit organization/version and derives self
+  from the current session, including ordinary members. It cannot select another
+  target or remove the final recovery-capable owner. See [self leave](docs/member-leave.md).
 - `PrepareOwnerTransfer` selects an existing active nonowner member and exact
   organization/source/target versions. A current owner and operation-bound
   primary proof are required; the former owner becomes an ordinary member.

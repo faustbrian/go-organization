@@ -59,7 +59,7 @@ func (o Operation) Descriptor() identity.FeatureOperation {
 	if teamMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-team", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
-	if o != Create && o != Update && o != AddMember && o != RemoveMember && o != OwnerTransfer {
+	if o != Create && o != Update && o != AddMember && o != RemoveMember && o != LeaveMember && o != OwnerTransfer {
 		return invitationDescriptor(o)
 	}
 	return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-membership", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
@@ -97,6 +97,7 @@ const (
 	Update       Operation = "identity.organization.update"
 	AddMember    Operation = "identity.organization.member.add"
 	RemoveMember Operation = "identity.organization.member.remove"
+	LeaveMember  Operation = "identity.organization.member.leave"
 	Get          Operation = "identity.organization.get"
 	ListMembers  Operation = "identity.organization.member.list"
 )
@@ -248,6 +249,20 @@ type MemberRequest struct {
 	CorrelationID                      string
 }
 
+// LeaveRequest removes only the authenticated human's current membership in
+// the explicitly selected organization. OrganizationVersion is its exact policy
+// epoch; the current membership version is captured during preparation, never
+// supplied as a target override. The final recovery-capable owner cannot leave.
+// Keep CommandID across retries. Historical recovery still requires current
+// membership; a retained receipt is not permission to read after leaving.
+type LeaveRequest struct {
+	Authentication      Authentication
+	CommandID           identity.CommandID
+	OrganizationID      ID
+	OrganizationVersion uint64
+	CorrelationID       string
+}
+
 // ReadRequest chooses an exact organization. Cursor is an exclusive UserID in
 // bytewise database C collation; Limit must be 1..100 for member listing.
 type ReadRequest struct {
@@ -388,13 +403,20 @@ func (s *Service) PrepareRemoveMember(ctx context.Context, r MemberRequest) (Com
 	return s.prepareMember(ctx, r, RemoveMember)
 }
 
+// PrepareLeaveMember authenticates self, checks current membership/action policy
+// and freezes its exact membership snapshot without writing. Durable adapters
+// must fence that same actor and the final owner under the shared aggregate lock.
+func (s *Service) PrepareLeaveMember(ctx context.Context, r LeaveRequest) (Command, error) {
+	return s.prepareMember(ctx, MemberRequest{Authentication: r.Authentication, CommandID: r.CommandID, OrganizationID: r.OrganizationID, OrganizationVersion: r.OrganizationVersion, CorrelationID: r.CorrelationID}, LeaveMember)
+}
+
 func (s *Service) prepareMember(ctx context.Context, r MemberRequest, op Operation) (out Command, err error) {
 	defer func() {
 		if recover() != nil {
 			out, err = Command{}, ErrUnavailable
 		}
 	}()
-	if s == nil || ctx == nil || !safeID(string(r.OrganizationID)) || !safeID(string(r.UserID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || op == AddMember && !r.Role.Valid() || op == RemoveMember && (r.Role != "" || r.MemberVersion == 0) {
+	if s == nil || ctx == nil || !safeID(string(r.OrganizationID)) || op != LeaveMember && !safeID(string(r.UserID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || op == AddMember && !r.Role.Valid() || op == RemoveMember && (r.Role != "" || r.MemberVersion == 0) {
 		return out, ErrInvalidInput
 	}
 	if _, err = identity.ParseCommandID(string(r.CommandID)); err != nil {
@@ -409,20 +431,32 @@ func (s *Service) prepareMember(ctx context.Context, r MemberRequest, op Operati
 	if err != nil {
 		return out, err
 	}
+	if op == LeaveMember {
+		r.UserID = actor
+	}
 	v, err := s.repository.Read(bounded, Query{Operation: op, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID, TargetID: r.UserID})
 	if err != nil {
 		return out, publicError(bounded, err)
 	}
-	if !validView(v, r.Authentication.TenantID, r.OrganizationID, actor) || v.Actor.Role == RoleMember {
+	if !validView(v, r.Authentication.TenantID, r.OrganizationID, actor) || op != LeaveMember && v.Actor.Role == RoleMember || op == LeaveMember && v.Target != v.Actor {
 		return out, ErrForbidden
 	}
 	if err = s.authorize(bounded, actor, r.Authentication.TenantID, r.OrganizationID, v.Organization.Version, op, r.CorrelationID); err != nil {
 		return out, err
 	}
+	if op == LeaveMember {
+		if err = bounded.Err(); err != nil {
+			return out, err
+		}
+		if observed.ValidateAt(s.config.Clock.Now()) != nil {
+			return out, ErrForbidden
+		}
+		r.MemberVersion = v.Actor.Version
+	}
 	if v.Organization.Version != r.OrganizationVersion || v.Target.Version != r.MemberVersion {
 		return out, ErrConflict
 	}
-	if v.TargetUser.Validate(r.Authentication.TenantID) != nil || v.TargetUser.ID != r.UserID || op == AddMember && v.TargetUser.Status != identity.StatusActive {
+	if v.TargetUser.Validate(r.Authentication.TenantID) != nil || v.TargetUser.ID != r.UserID || (op == AddMember || op == LeaveMember) && v.TargetUser.Status != identity.StatusActive {
 		return out, ErrForbidden
 	}
 	if op == AddMember {
