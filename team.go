@@ -11,6 +11,9 @@ const (
 	CreateTeam       Operation = "identity.organization.team.create"
 	AddTeamMember    Operation = "identity.organization.team.member-add"
 	RemoveTeamMember Operation = "identity.organization.team.member-remove"
+	GetTeam          Operation = "identity.organization.team.get"
+	UpdateTeam       Operation = "identity.organization.team.update"
+	DeleteTeam       Operation = "identity.organization.team.delete"
 	ListTeams        Operation = "identity.organization.team.list"
 	ListMyTeams      Operation = "identity.organization.team.list-mine"
 	ListTeamMembers  Operation = "identity.organization.team.member-list"
@@ -22,13 +25,19 @@ const (
 // MaximumTeams follows REFERENCE_CONFIGURATION organization.max_teams (10,000).
 // MaximumMembers is a local storage/cardinality budget capped at the existing
 // 100,000 organization-member ceiling, not a protocol-defined team default.
-type TeamConfig struct{ Version, MaximumTeams, MaximumMembers uint64 }
+type TeamConfig struct {
+	Version, MaximumTeams, MaximumMembers uint64
+	// LifecycleVersion 1 selects get/update/terminal-delete after the native
+	// forward migration. Zero preserves the original membership-only profile
+	// and its serialized configuration and command framing.
+	LifecycleVersion uint64 `json:",omitempty"`
+}
 
 func (c TeamConfig) Validate() error {
 	if c == (TeamConfig{}) {
 		return nil
 	}
-	if c.Version == 0 || c.MaximumTeams < 1 || c.MaximumTeams > 10000 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 {
+	if c.Version == 0 || c.MaximumTeams < 1 || c.MaximumTeams > 10000 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.LifecycleVersion > 1 {
 		return ErrInvalidInput
 	}
 	return nil
@@ -75,9 +84,11 @@ type TeamMemberRequest struct {
 	CorrelationID                                                                  string
 }
 
-// TeamReadRequest uses exclusive bytewise ID keyset pagination, 1..100 per page.
-// TeamID is required only for ListTeamMembers. Members may read their own team's
-// members; only owners/admins may read all organization teams or other teams.
+// TeamReadRequest selects an exact team or a paginated team read. GetTeam
+// requires TeamID, Limit zero, and an empty Cursor. Paginated reads use exclusive
+// bytewise ID keysets, 1..100 per page; only ListTeamMembers requires TeamID.
+// Members may read their own team's members; only owners/admins may read all
+// organization teams or other teams.
 type TeamReadRequest struct {
 	Authentication         Authentication
 	OrganizationID, TeamID ID
@@ -87,7 +98,7 @@ type TeamReadRequest struct {
 }
 
 func teamMutation(op Operation) bool {
-	return op == CreateTeam || op == AddTeamMember || op == RemoveTeamMember
+	return op == CreateTeam || op == AddTeamMember || op == RemoveTeamMember || op == UpdateTeam || op == DeleteTeam
 }
 func (s *Service) PrepareCreateTeam(ctx context.Context, r CreateTeamRequest) (Command, error) {
 	return s.prepareTeam(ctx, r, TeamMemberRequest{}, CreateTeam)
@@ -198,7 +209,8 @@ func (s *Service) readTeams(ctx context.Context, r TeamReadRequest, op Operation
 			out, err = View{}, ErrUnavailable
 		}
 	}()
-	if s == nil || ctx == nil || s.config.Teams.MaximumTeams == 0 || !safeID(string(r.OrganizationID)) || !safeID(r.CorrelationID) || r.Limit < 1 || r.Limit > 100 || r.Cursor != "" && !safeID(r.Cursor) || op == ListTeamMembers && !safeID(string(r.TeamID)) || op != ListTeamMembers && r.TeamID != "" {
+	exact := op == GetTeam
+	if s == nil || ctx == nil || s.config.Teams.MaximumTeams == 0 || !safeID(string(r.OrganizationID)) || !safeID(r.CorrelationID) || exact && (s.config.Teams.LifecycleVersion != 1 || r.Limit != 0 || r.Cursor != "") || !exact && (r.Limit < 1 || r.Limit > 100 || r.Cursor != "" && !safeID(r.Cursor)) || (op == ListTeamMembers || exact) && !safeID(string(r.TeamID)) || op != ListTeamMembers && !exact && r.TeamID != "" {
 		return out, ErrInvalidInput
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
@@ -218,7 +230,7 @@ func (s *Service) readTeams(ctx context.Context, r TeamReadRequest, op Operation
 	if !validView(out, q.TenantID, q.OrganizationID, actor) {
 		return View{}, ErrForbidden
 	}
-	if op == ListTeams && out.Actor.Role != RoleOwner && out.Actor.Role != RoleAdministrator {
+	if (op == ListTeams || exact) && out.Actor.Role != RoleOwner && out.Actor.Role != RoleAdministrator {
 		return View{}, ErrForbidden
 	}
 	if err = s.authorize(bounded, actor, q.TenantID, q.OrganizationID, out.Organization.Version, op, r.CorrelationID); err != nil {
@@ -237,6 +249,9 @@ func (s *Service) readTeams(ctx context.Context, r TeamReadRequest, op Operation
 		return View{}, publicError(bounded, e)
 	}
 	if !validView(fresh, q.TenantID, q.OrganizationID, actor) || fresh.Organization.Version != out.Organization.Version || fresh.Actor != out.Actor {
+		return View{}, ErrForbidden
+	}
+	if exact && (!validTeam(fresh.Team, q.TenantID, q.OrganizationID) || fresh.Team.ID != r.TeamID) {
 		return View{}, ErrForbidden
 	}
 	if len(fresh.Teams) > int(r.Limit) || len(fresh.TeamMembers) > int(r.Limit) {

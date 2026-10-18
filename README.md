@@ -192,8 +192,10 @@ also advance that subject's existing organization-scoped authorization epoch,
 without changing roles, granting permissions or global session authority.
 Organization removal immediately makes old team bindings unusable; re-admission
 requires an explicit team add against the new organization-member version and
-retained team tombstone version. Dynamic roles/permissions, team CRUD beyond
-create, active team, HTTP/reference registration and full M23 remain unselected.
+retained team tombstone version. The additional [team lifecycle profile](docs/team-lifecycle.md)
+selects exact get, versioned name update and terminal delete only after its
+forward migration and explicit `LifecycleVersion: 1`. Dynamic roles/permissions,
+active team, HTTP/reference registration and full M23 remain unselected.
 
 ## License
 

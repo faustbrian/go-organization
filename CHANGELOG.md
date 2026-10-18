@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add opt-in exact team reads, versioned bounded name replacement and terminal
+  deletion. Retired team IDs cannot be reused; existing membership-only
+  configuration and command framing remain unchanged until lifecycle selection.
+
 - Add an opt-in, bounded team-membership profile with owner/administrator
   creation and membership changes, authenticated team/member/mine reads and
   exact versions. Team bindings confer no independent permissions; removed
