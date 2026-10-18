@@ -1,11 +1,33 @@
-# Planned security model
+# Experimental security boundary
 
-[Documentation index](README.md) · [Repository entry](../README.md)
+The selected explicit-organization profile implements create/read and membership
+admission/list/removal. It is not a stable release or complete organization unit.
+The controls below distinguish this finite profile from later requirements.
 
-This repository contains planning metadata only. It has no runtime package,
-public API, parser, persistence adapter, network operation, background work, or
-supported release. The controls below are release requirements, not claims
-about implemented behavior.
+## Selected profile
+
+Public calls use the real native stateful opaque SessionService and external
+authorization policy. Only verified single-factor password bearer sessions are
+selected. Optional organization, factor and passkey authority is rejected, not
+dropped. An explicit ID grants no access: every read checks current active
+membership; mutation and final commit recheck original session/native authority.
+Target admission uses the exact active directory aggregate/version under the
+existing Work lock, separately from actor/session authority.
+
+Membership removal advances organization-scoped subject authority and retained
+member versions, never unrelated global user/credential epochs. No shared-cache
+invalidation is claimed. Tenant-serialized writes protect cardinality and the
+last active owner. The native Coordinator exclusively owns command claims,
+rollback, commit, replay and scoped recovery. Domain, scoped authority, audit and
+lifecycle outbox changes share its transaction. Participant effect rows are
+exact-command evidence, not a second journal. Unknown outcomes require primary
+reconciliation rather than another command ID.
+
+Bearer-bearing values reject automatic serialization and redact formatting.
+Do not log names, bearer/session material or configuration keys. Persist only
+safe recovery scope. The transport must resolve a trusted canonical client IP.
+Contexts are bounded, key maps copied, pools borrowed and background work absent.
+External policy callbacks must honor cancellation.
 
 ## Assets and trust boundaries
 
@@ -16,12 +38,12 @@ caller-supplied stores and units of work, delivery hooks, domain-proof readers,
 session and authorization integrations, capability links, and protocol or
 persistence adapters.
 
-Applications will continue to own user authentication, transport security,
-route and database authorization, tenant isolation, persistence transactions,
-rate limiting, audit delivery, session storage, and user interfaces. The core
-must not infer those capabilities from ambient process state.
+Applications own transport security, external policy, pool/key lifetimes,
+canonical-ID validation and user interfaces. Existing native owners supply
+sessions, protected counters, audit and transaction authority; the adapter must
+not infer those capabilities from ambient process state.
 
-## Required controls before implementation or release
+## Requirements for later profiles
 
 - Validate every untrusted command through byte, field, item, metadata, list,
   pagination, and diagnostic ceilings before allocation or normalization.
@@ -49,19 +71,19 @@ must not infer those capabilities from ambient process state.
 
 ## Release disposition
 
-**ORGANIZATION-RISK-001 — unimplemented authorization and lifecycle boundary**
+**ORGANIZATION-RISK-001 — incomplete full-unit qualification**
 
 - **Severity:** critical if treated as deployable.
 - **Disposition:** release blocker; not accepted for production.
 - **Owner:** go-organization maintainers.
-- **Rationale:** no executable contract currently enforces the planned
-  organization, authorization, capability, session, transition, cancellation,
-  or resource invariants.
-- **Mitigation:** keep the module planned, unpublished, non-installable, and
-  non-releasable; consumers must use an independently supported implementation.
-- **Review condition:** reassess only after implementation, a complete threat
-  model, executable hostile and concurrency evidence, scanner results, API and
-  migration policy, and independent Tier C review are present.
+- **Rationale:** invitations/capability delivery, teams, role editing, ownership
+  transfer, domain proofs, archive/delete commands, active selection, cache
+  closure, SSO/SCIM, MFA/passkeys and HTTP/browser transport are unselected.
+- **Mitigation:** keep the modules experimental; do not infer those controls
+  from reserved database states or the historical goal.
+- **Review condition:** reassess after the affected profile has actual native
+  integration evidence, current dependency/security checks and independent
+  complete-diff review. Full identity-platform qualification remains separate.
 
 Choose the next guide in the [documentation index](README.md)
 or return to the [repository entry](../README.md) for installation and ownership.

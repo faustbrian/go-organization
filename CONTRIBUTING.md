@@ -1,17 +1,18 @@
 # Contributing
 
-This repository is a planned, non-releasable scaffold, not an implemented Go
-application or installable library. Read [AGENTS.md](AGENTS.md),
-[the current planning scope](docs/goal.md) and [SECURITY.md](SECURITY.md).
-Implementation programs and frozen planning records require their own
-authorization; changing verification does not activate them.
+This repository implements an experimental storage-neutral organization and
+membership policy API. The root is a prerequisite for the separately delivered
+native PostgreSQL adapter, not a durable backend on its own or a stable release.
+Read [AGENTS.md](AGENTS.md), [the full later scope](docs/goal.md) and
+[SECURITY.md](SECURITY.md). Historical planning records do not establish runtime
+or release qualification.
 
 ## Verification
 
 Use Go 1.27.2; the module minimum remains Go 1.27.0. An isolated checkout
 needs no sibling repositories or coordination goal files for these checks.
-Install the public v2.1.2 binary archive for your platform from
-[go-library-tools releases](https://github.com/faustbrian/go-library-tools/releases/tag/v2.1.2).
+Install the public v2.5.1 binary archive for your platform from
+[go-library-tools releases](https://github.com/faustbrian/go-library-tools/releases/tag/v2.5.1).
 Verify `checksums.txt` against the digest in `.golib.yaml`, then verify the
 archive against that checksum set. Put the extracted binary on `PATH` or
 select its path through `GOLIB`; do not build Tools from source. CI uses the
@@ -28,6 +29,8 @@ Run one bounded disposable-cache session:
   export GOCACHE="$planning_cache/build"
   export GOMODCACHE="$planning_cache/modules"
   export GOTMPDIR="$planning_cache/tmp"
+  GOWORK=off go test ./...
+  GOWORK=off go vet ./...
   make check
 )
 ```
@@ -57,7 +60,9 @@ make secrets-check
 ```
 
 Scheduled/manual Required retains online authority refresh and whole-tree/history
-secrets with the existing twenty-minute outer cap. These commands preserve
-planning acceptance only. There are no application tests, active fuzz targets,
-mutation campaigns, runtime conformance claims or releasable modules to qualify.
-No application release is authorized by a green planning check.
+secrets with the existing twenty-minute outer cap. These structural checks do
+not run the root behavior tests or input-validation fuzz target. Run affected
+native tests separately; changed concurrency and hostile-input boundaries also
+need focused race/fuzz evidence. Root unit tests prove policy and transaction
+handoff, not native persistence. A green structural check does not establish
+PostgreSQL delivery, full platform qualification or a stable module release.

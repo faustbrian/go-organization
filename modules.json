@@ -11,27 +11,33 @@
         {
           "module_directory": ".",
           "directory": ".",
-          "name": "planned",
+          "name": "organization",
           "import_path": "github.com/faustbrian/go-organization",
-          "kind": "planned entry point",
-          "production": false,
-          "executable": false,
-          "coverage_required": false,
-          "build_required": false,
+          "kind": "public",
+          "production": true,
+          "executable": true,
+          "coverage_required": true,
+          "build_required": true,
           "build_tags": []
         }
       ],
-      "purpose": "Planned storage-neutral organization core for organizations, memberships, invitations, teams, role assignments, ownership transfer, domain claims, and lifecycle policy; no runtime package is implemented or released.",
-      "lifecycle": "planned",
+      "purpose": "Experimental explicit-organization policy for create, get, membership admission, listing and removal; later organization profiles remain unimplemented.",
+      "lifecycle": "experimental",
       "kind": "public library",
-      "releasable": false,
+      "releasable": true,
       "family": "service-edge",
       "family_label": "Service Edge",
       "family_description": "Request-edge policy, identity, access decisions, routing, middleware, and process lifecycle.",
       "family_order": 2,
-      "version": "",
+      "version": "0.0.0",
       "tag_prefix": "v",
-      "owned_dependencies": [],
+      "owned_dependencies": [
+        "github.com/faustbrian/go-authentication/v2",
+        "github.com/faustbrian/go-authorization/v3",
+        "github.com/faustbrian/go-clock",
+        "github.com/faustbrian/go-identity",
+        "github.com/faustbrian/go-identity/session"
+      ],
       "reverse_owned_dependencies": [],
       "external_runtime_dependencies": [],
       "required_services": [],
@@ -44,27 +50,27 @@
       "goal_files": [
         "docs/goal.md"
       ],
-      "goal_status": "planned",
+      "goal_status": "in-progress",
       "goal_evidence": [],
       "cohesion": {
         "family": "service-edge",
         "secondary_capabilities": [
           "identity-and-access"
         ],
-        "responsibility": "Plan a storage-neutral organization core for organizations, memberships, invitations, teams, role assignments, ownership transfer, domain claims, and lifecycle policy.",
+        "responsibility": "Storage-neutral explicit-organization policy and exact native transaction handoff for the selected create and membership profile.",
         "non_goals": [
-          "Claim that a public package identifier, runtime API, implementation, compatibility promise, or release currently exists.",
+          "Claim full organization-unit qualification, a stable API, or an available released version.",
           "Own enterprise single sign-on protocol behavior, SCIM wire behavior, billing, user interfaces, or application routing.",
           "Own database clients, migrations, transactions, caches, background workers, session persistence, or persistence adapters."
         ],
-        "public_package_identifier": "none",
+        "public_package_identifier": "organization",
         "primary_entry_packages": [
           "github.com/faustbrian/go-organization"
         ],
         "package_selection": {
-          "github.com/faustbrian/go-organization": "Planning identity only; no importable package or runtime API currently exists."
+          "github.com/faustbrian/go-organization": "Experimental explicit-organization policy. Use the native postgres service for durable operations; full platform qualification remains pending."
         },
-        "lifecycle_status": "planned",
+        "lifecycle_status": "active",
         "maturity": "experimental",
         "construction_styles": [
           "new-config",
@@ -87,7 +93,7 @@
         "supported_go": {
           "minimum": "1.27.0",
           "tested": [
-            "1.27.0"
+            "1.27.2"
           ]
         },
         "supported_platforms": [
@@ -97,21 +103,21 @@
         "supported_protocols": [],
         "documentation": {
           "readme": "README.md",
-          "api": null,
-          "adoption": null,
+          "api": "README.md",
+          "adoption": "README.md",
           "security": "docs/security.md",
           "compatibility": null,
           "performance": null,
-          "examples": null,
-          "faq": null,
-          "changelog": null,
-          "pkg_go_dev": null,
+          "examples": "README.md",
+          "faq": "README.md",
+          "changelog": "CHANGELOG.md",
+          "pkg_go_dev": "https://pkg.go.dev/github.com/faustbrian/go-organization",
           "ecosystem_index": "https://github.com/faustbrian/go-library-tools/blob/v1.4.0/docs/ecosystem/README.md"
         },
         "known_good_compatibility_sets": [],
         "delivery": {
-          "implementation": "not-started",
-          "hardening": "not-started",
+          "implementation": "in-progress",
+          "hardening": "in-progress",
           "release": "blocked"
         }
       },

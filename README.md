@@ -1,58 +1,89 @@
 # go-organization
 
-> **Status: planned.** This repository does not currently provide an
-> installable package, a released version, or a runtime API.
+> **Status: experimental.** Only the explicit-organization membership profile
+> below is implemented. This is not a stable release or complete organization unit.
 
-`go-organization` reserves the planned Golib boundary for organizations,
-memberships, invitations, teams, role assignments, ownership transfer, domain
-claims, and organization lifecycle. The plan keeps those concepts separate
-from federation protocols, persistence, billing, and application concerns.
+`go-organization` supplies storage-neutral organization policy and immutable
+transaction handoff for organization creation and membership admission, listing
+and removal with last-owner protection. The root API is an adapter prerequisite;
+the native PostgreSQL implementation is delivered separately. The root alone
+does not supply durable organization operations.
 
-## Planned responsibility
+## API and selection
 
-The future root package is intended to own storage-neutral organization policy,
-records, lifecycle transitions, domain claims, and explicit coordination
-through caller-supplied resources. Its contracts remain proposals until they
-are implemented, reviewed, verified, and released.
+The native PostgreSQL service supplies durable operations. The root `Service`
+owns real session authentication, external policy, validation and immutable
+command preparation. Its `Repository` and exact `UnitOfWork.Execute`/`Recover`
+contracts are adapter boundaries, not application workflow instructions.
+
+- `PrepareCreate` selects a preallocated canonical ID and tenant-unique lowercase
+  ASCII slug. The creator becomes an owner atomically.
+- `PrepareAddMember` requires an existing active target user, static role and
+  expected organization/member versions. Administrators cannot add owners.
+- `PrepareRemoveMember` requires exact versions and retains a tombstone. Only
+  owners remove owners; the final owner cannot be removed.
+- `Execute` accepts the same immutable prepared command for bounded retries.
+- `Get` and `ListMembers` require current active membership on every call.
+  Listing uses exclusive UserID keysets and limits 1–100 over current committed
+  state, not a retained snapshot. Earlier concurrent additions require restart.
+- `Recover` authenticates the current actor against exact original scope. An ID
+  alone grants no result access; recovery never re-executes a command.
+
+Membership removal advances scoped organization authorization, not unrelated
+global user or credential authority. Re-admission advances the retained
+membership and scoped authority rather than resetting them.
 
 ## Non-goals
 
-The planned root boundary does not own:
+The root boundary does not own:
 
 - enterprise single sign-on protocol behavior or SCIM wire behavior;
 - billing or user interfaces;
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Those concerns may become separate modules or compose existing Golib packages.
-Their presence in planning material does not make them available here.
+Invitations/delivery, teams, custom roles, ownership transfer, domain claims,
+archive/delete commands, active selection, cache invalidation, SSO/SCIM and
+HTTP/browser transport are unselected. Reserved database states are not public
+operations. Their presence in planning material does not make them available.
 
 ## Lifecycle and ownership
 
-Implementation, hardening, and release have not started. The current module
-declaration exists only so repository tooling can validate the planned module
-identity, family, ownership, and lifecycle metadata.
+Supply a real native stateful opaque bearer session with verified single-factor
+password authentication. Organization-, factor- and passkey-bound sessions are
+rejected, not downgraded. Supply external policy, canonical-ID validation,
+positive operation budgets of at most five seconds, and finite
+member/per-user/per-tenant limits. Native budgets must fit the enclosing budget.
 
-The plan requires caller-owned configuration and runtime resources, copied
-mutable inputs, context-bounded external operations, and no package-owned
-background work. These are design constraints, not claims about released
-behavior.
+The caller owns primary pools, transport, retained keys and shutdown. Mutable
+key maps are copied; no package background work or authorization cache starts.
+Do not log names or bearer-bearing preparations. Commands and authentication
+reject automatic serialization; persist only safe recovery scope.
+
+## Outcomes and retries
+
+Inspect `StoreResult.Receipt.Outcome`, not error presence alone. Terminal
+`NotCommitted` replay may return a nil error. `Unknown` means the server may
+have committed: reconcile through scoped recovery, never a new command ID.
+Preparing again captures new observations and is not an idempotent replay.
+Retries and recovery never renew original session expiry.
+
+## FAQ and tradeoffs
+
+**Why explicit IDs?** Active-session organization selection is a later profile;
+current membership and policy are checked for the supplied ID.
+
+**Why a tenant lock?** The native adapter serializes tenant mutations to protect
+cardinality and last-owner invariants. This profile makes no throughput claim.
 
 ## Planning and verification
 
-The [repository goal](docs/goal.md) and `modules.json` record the planning scope
-and schema-v2 engineering inventory. Planned lifecycle state excludes this
-module from installable and released consumer catalogs. The local
-`make cohesion` target validates that boundary with the exact checksum-pinned
-`go-library-tools` release declared in `.golib.yaml`.
+The [repository goal](docs/goal.md) describes the full later unit, not current
+completion. `modules.json` records the experimental root prerequisite.
+Full platform composition and release qualification remain pending.
 
-Passing repository checks proves only that the planning scaffold and metadata
-are internally consistent. It does not prove organization behavior or an API.
-
-The [planned security boundary](docs/security.md) records the assets, trust
-boundaries, required controls, and release blockers that any future runtime
-must satisfy. See [SECURITY.md](SECURITY.md) to report a vulnerability
-privately; no released version is currently supported.
+See the [security boundary](docs/security.md), [release notes](CHANGELOG.md), and
+[SECURITY.md](SECURITY.md) for private reporting; no stable release is supported.
 
 Use Go 1.27.2 and the qualified public Tools v2.1.2 binary; the planned
 module minimum remains Go 1.27.0. `make check`, `make ci` and `make fast-check`
