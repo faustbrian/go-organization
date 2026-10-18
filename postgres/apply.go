@@ -62,6 +62,8 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 		e = p.create(ctx, w, c)
 	} else if c.operation == organization.Update {
 		e = p.update(ctx, w, c)
+	} else if isTeamMutation(c.operation) {
+		e = p.mutateTeam(ctx, w, c)
 	} else {
 		e = p.mutateMember(ctx, w, c)
 	}

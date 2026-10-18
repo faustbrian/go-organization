@@ -396,7 +396,10 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 		t.Fatal("removed genuine actor retained member-list access", e)
 	}
 	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
-	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, signinOwner)
+	recoveryOwner := owner
+	trackOwnerSignin := func() organization.Authentication { recoveryOwner = signinOwner(); return recoveryOwner }
+	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin)
+	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
 }
 
 func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte) *organizationpg.Service {
@@ -405,7 +408,8 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 	if e != nil {
 		t.Fatal(e)
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000})
+	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100}
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -449,7 +453,7 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 	if e != nil {
 		t.Fatal(e)
 	}
-	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
+	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
 		_, e := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), e)
 	}}, Sessions: sessions, Authorization: authorize, Risk: counters, Coordinator: coordinator, Registry: registry})

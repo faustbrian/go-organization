@@ -8,6 +8,7 @@ import (
 
 	"github.com/faustbrian/go-audit"
 	"github.com/faustbrian/go-authorization/v3"
+	authority "github.com/faustbrian/go-authorization/v3/postgres"
 	identity "github.com/faustbrian/go-identity"
 	kernel "github.com/faustbrian/go-identity/postgres"
 	"github.com/faustbrian/go-identity/risk"
@@ -44,7 +45,7 @@ type Service struct {
 }
 
 func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
-	if p == nil || p.repository == nil || c.Sessions == nil || c.Authorization == nil || c.Risk == nil || c.Coordinator == nil || c.Registry == nil || c.Core.PolicyID != p.config.PolicyID || c.Core.PolicyVersion != p.config.PolicyVersion || c.Core.MaximumMembers != p.config.MaximumMembers || c.Core.MaximumPerUser != p.config.MaximumPerUser || c.Core.MaximumPerTenant != p.config.MaximumPerTenant {
+	if p == nil || p.repository == nil || c.Sessions == nil || c.Authorization == nil || c.Risk == nil || c.Coordinator == nil || c.Registry == nil || c.Core.PolicyID != p.config.PolicyID || c.Core.PolicyVersion != p.config.PolicyVersion || c.Core.MaximumMembers != p.config.MaximumMembers || c.Core.MaximumPerUser != p.config.MaximumPerUser || c.Core.MaximumPerTenant != p.config.MaximumPerTenant || c.Core.Teams != p.config.Teams {
 		return nil, organization.ErrInvalidInput
 	}
 	core, e := organization.NewService(c.Sessions, p.repository, c.Authorization, c.Core)
@@ -254,6 +255,9 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	}
 	b := r.Binding
 	op := organization.Operation(b.OperationID)
+	if isTeamMutation(op) && s.config.Core.Teams.MaximumTeams == 0 {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
 	if b.ValidateFor(op.Descriptor()) != nil || b.ActorKind != authorization.SubjectUser || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.TenantID != a.TenantID {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
@@ -283,19 +287,21 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	if _, _, _, e = sessionpg.OriginalSessionAdmission(s.participant.config.Profile, observed.Session, actorBinding); e != nil {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
+	var admission organization.View
 	if op != organization.Create {
 		view, readErr := s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
 		if readErr != nil {
 			return organization.StoreResult{}, readErr
 		}
-		if op == organization.Update {
+		admission = view
+		if op == organization.Update || isTeamMutation(op) {
 			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
 				return organization.StoreResult{}, e
 			}
 		}
 	}
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(b.UserID)}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
-	u := &unitOfWork{service: s, recovery: &recoveryInput{binding: b, caller: caller, observed: observed}}
+	u := &unitOfWork{service: s, recovery: &recoveryInput{binding: b, caller: caller, observed: observed, credential: credential, organization: admission.Organization, member: admission.Actor}}
 	return u.Recover(bounded, b.CommandID)
 }
 
@@ -311,7 +317,7 @@ func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.Comman
 	if view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
 		return organization.ErrForbidden
 	}
-	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(organization.Update), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(b.RecordID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(view.Organization.Version, 10))}}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
+	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(b.RecordID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(view.Organization.Version, 10))}}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
 	decision, err := s.config.Authorization.Decide(ctx, caller)
 	if err != nil {
 		return storageError(ctx, err)
@@ -326,10 +332,73 @@ func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.Comman
 }
 
 type recoveryInput struct {
-	binding  identity.CommandBinding
-	caller   authorization.DecisionContext
-	observed session.GetResult
+	binding      identity.CommandBinding
+	caller       authorization.DecisionContext
+	observed     session.GetResult
+	credential   session.Credential
+	organization organization.Organization
+	member       organization.Member
 }
+
+// Recovery policy callbacks are not authority leases. Re-read the submitted
+// credential through the native session owner and compare the exact primary
+// organization/member admission after callbacks, without recursively invoking
+// policy or renewing the original recovery observation's validity interval.
+func (s *Service) revalidateRecovery(ctx context.Context, r *recoveryInput) error {
+	if r.observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
+		return organization.ErrForbidden
+	}
+	b := r.binding
+	current, err := s.config.Sessions.Get(ctx, session.GetRequest{TenantID: b.TenantID, Credential: r.credential})
+	if err != nil {
+		return storageError(ctx, err)
+	}
+	if current.ValidateAt(s.config.Core.Clock.Now()) != nil {
+		return organization.ErrForbidden
+	}
+	bound, err := current.Session.Bindings()
+	if err != nil || bound.TenantID != b.TenantID || string(bound.UserID) != string(b.ActorID) {
+		return organization.ErrForbidden
+	}
+	actorBinding := b
+	actorBinding.UserID = bound.UserID
+	if _, _, _, err = sessionpg.OriginalSessionAdmission(s.participant.config.Profile, current.Session, actorBinding); err != nil {
+		return organization.ErrForbidden
+	}
+	if r.organization.Version != 0 {
+		view, err := s.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: b.TenantID, ActorID: identity.UserID(b.ActorID), OrganizationID: organization.ID(b.RecordID)})
+		if err != nil {
+			return err
+		}
+		if view.Organization != r.organization || view.Actor != r.member {
+			return organization.ErrForbidden
+		}
+		scope, err := OrganizationAuthorityScope(b.TenantID, view.Organization.ID, view.Actor.UserID)
+		if err != nil {
+			return err
+		}
+		store, err := authority.NewAuthorityStore(s.participant.repository.pool.Raw(), s.participant.repository.maximum)
+		if err != nil {
+			return organization.ErrUnavailable
+		}
+		live, err := store.Get(ctx, scope)
+		if err != nil {
+			return publicTeamAuthorityError(err)
+		}
+		if live.Version != view.Actor.AuthorizationVersion {
+			return organization.ErrForbidden
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	now := s.config.Core.Clock.Now()
+	if current.ValidateAt(now) != nil || r.observed.ValidateAt(now) != nil {
+		return organization.ErrForbidden
+	}
+	return nil
+}
+
 type unitOfWork struct {
 	service  *Service
 	prepared *preparedState
@@ -367,14 +436,14 @@ func (u *unitOfWork) Recover(ctx context.Context, id identity.CommandID) (organi
 	}
 	r := u.recovery
 	s := u.service
-	if r.observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
+	if err := s.revalidateRecovery(ctx, r); err != nil {
+		return organization.StoreResult{}, err
 	}
 	b := r.binding
 	q := identity.RecoveryQuery{CommandID: id, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
 	receipt, e := s.config.Coordinator.RecoverFeatureCommand(ctx, q, r.caller)
-	if r.observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
+	if err := s.revalidateRecovery(ctx, r); err != nil {
+		return organization.StoreResult{}, err
 	}
 	if receipt.Outcome != identity.CommitOutcomeInvalid && receipt.Binding != b {
 		return organization.StoreResult{}, organization.ErrUnavailable

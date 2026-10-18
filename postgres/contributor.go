@@ -32,6 +32,7 @@ type ContributorConfig struct {
 	PolicyID                                         string
 	PolicyVersion                                    uint64
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
+	Teams                                            organization.TeamConfig
 }
 
 // Contributor is an immutable open registered participant, not a coordinator or
@@ -45,7 +46,7 @@ type Contributor struct {
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
-	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 {
+	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil {
 		return nil, organization.ErrInvalidInput
 	}
 	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
@@ -64,8 +65,12 @@ func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, 
 func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.membership", Version: 1}
 }
-func (*Contributor) FeatureOperations() []identity.FeatureOperation {
-	return []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
+func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
+	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
+	if p != nil && p.config.Teams.MaximumTeams > 0 {
+		ops = append(ops, organization.CreateTeam.Descriptor(), organization.AddTeamMember.Descriptor(), organization.RemoveTeamMember.Descriptor())
+	}
+	return ops
 }
 func (ContributorConfig) Format(s fmt.State, _ rune) {
 	_, _ = s.Write([]byte("organization.postgres.ContributorConfig(redacted)"))
@@ -86,6 +91,8 @@ type nativeCommand struct {
 	role          organization.Role
 	original      session.Session
 	until         time.Time
+	team          organization.Team
+	teamMember    organization.TeamMember
 }
 
 func text(name, value string) identity.FeatureField {
@@ -108,6 +115,12 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 		return identity.Command{}, organization.ErrForbidden
 	}
 	f = append(f, number("version", x.Organization.Version), text("slug", x.Organization.Slug), text("name", x.Organization.Name), number("actor-version", x.Actor.Version), text("actor-role", string(x.Actor.Role)), number("actor-authorization", x.Actor.AuthorizationVersion), number("member-version", x.Target.Version), text("member-role", string(x.Target.Role)), number("member-authorization", x.Target.AuthorizationVersion), number("target-version", x.TargetUser.Version), text("target-status", string(x.TargetUser.Status)), text("role", string(x.Role)), number("maximum-members", x.MaximumMembers), number("maximum-per-user", x.MaximumPerUser), number("maximum-per-tenant", x.MaximumPerTenant), text("session-until", x.Session.ValidUntil().UTC().Format(time.RFC3339Nano)))
+	if isTeamMutation(x.Operation) {
+		if p.config.Teams.MaximumTeams == 0 || x.Teams != p.config.Teams {
+			return identity.Command{}, organization.ErrInvalidInput
+		}
+		f = append(f, text("team-id", string(x.Team.ID)), text("team-name", x.Team.Name), number("team-version", x.Team.Version), number("team-member-version", x.TeamMember.Version), number("team-member-organization-version", x.TeamMember.OrganizationMemberVersion), number("team-policy-version", x.Teams.Version), number("maximum-teams", x.Teams.MaximumTeams), number("maximum-team-members", x.Teams.MaximumMembers))
+	}
 	return identity.NewFeatureSessionCommand(identity.FeatureCommandSpec{Binding: x.Binding, Operation: x.Operation.Descriptor(), Fields: f}, x.Bearer)
 }
 
@@ -138,11 +151,19 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 			return bad()
 		}
 	}
-	if len(values) != 16 {
+	want := 16
+	if isTeamMutation(op) {
+		want += 8
+	}
+	if len(values) != want {
 		return bad()
 	}
 	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
 	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	if isTeamMutation(op) {
+		textNames = append(textNames, "team-id", "team-name")
+		numberNames = append(numberNames, "team-version", "team-member-version", "team-member-organization-version", "team-policy-version", "maximum-teams", "maximum-team-members")
+	}
 	for _, key := range textNames {
 		if values["organization."+key].Kind != identity.FeatureText {
 			return bad()
@@ -167,7 +188,20 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		return bad()
 	}
 	c := nativeCommand{spec: s, operation: op, org: organization.Organization{ID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, Slug: t("slug"), Name: t("name"), Version: n("version"), Active: true}, actor: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: identity.UserID(s.Binding.ActorID), Role: organization.Role(t("actor-role")), Version: n("actor-version"), AuthorizationVersion: n("actor-authorization"), Active: true}, target: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Role: organization.Role(t("member-role")), Version: n("member-version"), AuthorizationVersion: n("member-authorization")}, user: identity.User{ID: s.Binding.UserID, TenantID: s.Binding.TenantID, Version: n("target-version"), Status: identity.Status(t("target-status"))}, role: organization.Role(t("role")), original: record, until: until}
-	if op == organization.Create {
+	if isTeamMutation(op) {
+		if p.config.Teams.MaximumTeams == 0 || n("team-policy-version") != p.config.Teams.Version || n("maximum-teams") != p.config.Teams.MaximumTeams || n("maximum-team-members") != p.config.Teams.MaximumMembers || !scope(t("team-id")) || !boundedTeamName(t("team-name")) || c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.role != "" {
+			return bad()
+		}
+		c.team = organization.Team{ID: organization.ID(t("team-id")), OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, Name: t("team-name"), Version: n("team-version")}
+		c.teamMember = organization.TeamMember{TeamID: c.team.ID, OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Version: n("team-member-version"), OrganizationMemberVersion: n("team-member-organization-version")}
+		if op == organization.CreateTeam {
+			if c.team.Version != 0 || c.teamMember.Version != 0 || c.teamMember.OrganizationMemberVersion != 0 || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.user.Version != 0 || c.user.Status != "" || string(s.Binding.UserID) != string(s.Binding.ActorID) {
+				return bad()
+			}
+		} else if c.team.Version == 0 || c.team.Version == ^uint64(0) || c.teamMember.Version == ^uint64(0) || c.target.Version == 0 || c.target.AuthorizationVersion == 0 || !c.target.Role.Valid() || c.user.Validate(s.Binding.TenantID) != nil || c.user.Status != identity.StatusActive || op == organization.RemoveTeamMember && c.teamMember.Version == 0 {
+			return bad()
+		}
+	} else if op == organization.Create {
 		if c.org.Version != 0 || c.actor.Version != 0 || c.target.Version != 0 || c.role != organization.RoleOwner || string(s.Binding.ActorID) != string(s.Binding.UserID) || c.user.Version != 0 {
 			return bad()
 		}
@@ -211,6 +245,12 @@ func events(op organization.Operation) (string, string) {
 		return "membership.created.v1", "identity.organization.add_member"
 	case organization.RemoveMember:
 		return "membership.removed.v1", "identity.organization.remove_member"
+	case organization.CreateTeam:
+		return "team.created.v1", "identity.organization.create_team"
+	case organization.AddTeamMember:
+		return "team.membership_changed.v1", "identity.organization.add_team_member"
+	case organization.RemoveTeamMember:
+		return "team.membership_changed.v1", "identity.organization.remove_team_member"
 	}
 	return "", ""
 }
@@ -275,7 +315,7 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 	if e = w.RequireActiveDirectoryAuthority(ctx, p, d); e != nil {
 		return e
 	}
-	if !final && c.operation == organization.AddMember {
+	if !final && (c.operation == organization.AddMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember) {
 		// The existing identity owner fences the exact target; organization
 		// never copies identity SQL or invents target security epochs.
 		if e = w.RequireActiveTargetUser(ctx, p, c.user); e != nil {

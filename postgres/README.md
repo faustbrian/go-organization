@@ -148,8 +148,42 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend/cancel/reject/explicit-expire, recipient listing, teams and other full-goal
+Resend/cancel/reject/explicit-expire, recipient listing and other full-goal
 profiles remain unimplemented.
+
+## Optional native teams
+
+Install `TeamMigrationSource{Version: ...}` after the installed organization
+migrations, then set identical positive `Core.Teams` and `ContributorConfig.Teams`.
+Zero disables teams, including contributor operation advertisement; existing
+membership/invitation migrations and command fingerprints are unchanged.
+The forward migration preserves populated organizations/static memberships and
+adds tenant/organization-scoped teams and version-bound membership tombstones.
+
+The public `Service` provides create/add/remove preparation and team/member/mine
+reads with the root request types. It uses the same `PreparedCommand`, `Execute`
+and `Recover`, sole coordinator, protected audit and lifecycle outbox. Queries
+use bytewise exclusive-ID cursors, 1..100 rows, over current primary state, not
+retained snapshots. Ordinary members may inspect only their own team's members;
+owners/admins may list all teams. Exact original session, current actor/target
+membership and identity are fenced through the protected commit. Team changes
+advance the shared organization epoch and the directly changed subject's scoped
+authorization epoch, not global session authority or roles. An organization
+remove/re-add does not restore any previous team binding: explicit re-admission
+uses the new organization-member version and retained team-binding version.
+
+The genuine password consumer continues through team create, compatible member
+add, all three read surfaces and removal denial. Focused native tests additionally
+cover quotas, duplicate contention, scope, authority withdrawal, rollback,
+lost acknowledgement recovery and a populated forward migration. Team update/
+delete/active selection, dynamic roles and HTTP composition remain later profiles.
+
+Recovery re-reads the submitted native session and the original current
+organization/member role, policy and scoped-authority epochs after external
+callbacks, including the kernel disclosure policy. A callback's allow cannot
+preserve withdrawn authority or disclose a retained receipt. This shared check
+also protects metadata-update recovery; another legitimate current session for
+the same actor can still recover the exact original command binding.
 
 ## Verification and release
 

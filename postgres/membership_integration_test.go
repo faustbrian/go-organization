@@ -70,6 +70,7 @@ type orgFixture struct {
 	dsn            string
 	database       string
 	history        migrationList
+	teams          organization.TeamConfig
 }
 
 func migrationBundle(t *testing.T, version migrations.Version, name string, files fs.FS, prefix string) migrations.Migration {
@@ -231,7 +232,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum})
+	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -262,6 +263,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 		}
 		return nil
 	}}, Sessions: f.sessions, Authorization: fixturePolicy{}, Risk: counters, Coordinator: coordinator, Registry: registry}
+	f.configuration.Core.Teams = f.teams
 	f.service, e = organizationpg.NewService(f.participant, f.configuration)
 	if e != nil {
 		t.Fatal(e)

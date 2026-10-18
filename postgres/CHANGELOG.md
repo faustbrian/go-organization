@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Revalidate actual session, organization/member role and policy/scoped authority
+  after recovery-policy callbacks before disclosing retained outcomes, including
+  the shared organization metadata-update recovery path.
+
+- Add native optional teams and membership through the existing coordinator,
+  with explicit startup quotas, current session/member authority, policy and
+  scoped authorization epochs, protected audit/lifecycle effects and exact
+  outcome recovery. Install the additive TeamMigrationSource before enabling
+  teams; zero configuration preserves existing operations and registrations.
+
 - Add native organization name/slug updates through the existing coordinator,
   with current owner/administrator authority, tenant-unique slugs, expected
   versions, atomic protected audit/lifecycle effects and exact-command recovery.
