@@ -403,6 +403,7 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 	trackOwnerSignin := func() organization.Authentication { recoveryOwner = signinOwner(); return recoveryOwner }
 	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin)
 	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
+	exerciseGenuineSelfLeave(t, ctx, service, owner, member, memberID, signinRecipient)
 	transferPolicy, e := fixtureAuthorization()
 	if e != nil {
 		t.Fatal(e)

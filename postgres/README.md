@@ -48,6 +48,15 @@ outcome and may return a nil error.
 
 ## Persistence and concurrency
 
+`PrepareLeaveMember(ctx, organization.LeaveRequest, trustedCanonicalClientIP)`
+uses the same coordinator and tombstone mutation as removal with its distinct
+self-only `identity.organization.member.leave` command/policy. It advances the
+organization policy and membership-scoped authority, not global credentials or
+sessions. The final owner cannot leave. No new migration is required.
+Current membership remains mandatory for historical disclosure: after leaving,
+`Recover` denies until legitimate readmission, and old team bindings stay invalid.
+See [self-leave semantics](../docs/member-leave.md).
+
 The selected [ownership-transfer profile](../docs/owner-transfer.md) uses
 `PrepareOwnerTransfer` and the same `Execute`/`Recovery` boundary. Install the
 password owner's selected action-proof migration and supply its native primary

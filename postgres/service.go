@@ -167,6 +167,20 @@ func (s *Service) PrepareRemoveMember(ctx context.Context, r organization.Member
 	return s.prepare(ctx, c, network)
 }
 
+// PrepareLeaveMember freezes a self-only membership departure, not an
+// administrator removal grant. The same coordinator atomically tombstones the
+// membership and advances organization/scoped authority with removal effects.
+func (s *Service) PrepareLeaveMember(ctx context.Context, r organization.LeaveRequest, network string) (PreparedCommand, error) {
+	if s == nil {
+		return PreparedCommand{}, organization.ErrInvalidInput
+	}
+	c, err := s.core.PrepareLeaveMember(ctx, r)
+	if err != nil {
+		return PreparedCommand{}, err
+	}
+	return s.prepare(ctx, c, network)
+}
+
 func (s *Service) prepare(ctx context.Context, c organization.Command, network string) (PreparedCommand, error) {
 	return s.prepareMapped(ctx, c, identity.Command{}, network)
 }

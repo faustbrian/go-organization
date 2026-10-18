@@ -71,7 +71,7 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.membership", Version: 1}
 }
 func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
-	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
+	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
 	if p != nil && p.config.OwnerTransferPrimary != nil {
 		ops = append(ops, organization.OwnerTransfer.Descriptor())
 	}
@@ -268,7 +268,12 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 			return bad()
 		}
 	} else {
-		if c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.user.Validate(s.Binding.TenantID) != nil {
+		if c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || op != organization.LeaveMember && c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.user.Validate(s.Binding.TenantID) != nil {
+			return bad()
+		}
+		// The public contributor also accepts directly constructed native
+		// commands: self-leave cannot become an arbitrary-target removal grant.
+		if op == organization.LeaveMember && (s.Binding.UserID != identity.UserID(s.Binding.ActorID) || !c.actor.Role.Valid() || c.target.Version != c.actor.Version || c.target.AuthorizationVersion != c.actor.AuthorizationVersion || c.target.Role != c.actor.Role || c.role != "" || c.user.Status != identity.StatusActive) {
 			return bad()
 		}
 		if op == organization.AddMember && (!c.role.Valid() || c.user.Status != identity.StatusActive || c.role == organization.RoleOwner && c.actor.Role != organization.RoleOwner) {
@@ -304,7 +309,9 @@ func events(op organization.Operation) (string, string) {
 		return "organization.updated.v1", "identity.organization.update"
 	case organization.AddMember:
 		return "membership.created.v1", "identity.organization.add_member"
-	case organization.RemoveMember:
+	case organization.RemoveMember, organization.LeaveMember:
+		// SECURITY_EVENTS declares the protected membership-removal effect.
+		// Callable leave keeps its own self-only command and policy identity.
 		return "membership.removed.v1", "identity.organization.remove_member"
 	case organization.OwnerTransfer:
 		return "organization.ownership_transferred.v1", "identity.organization.transfer_ownership"

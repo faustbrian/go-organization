@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native self-leave through the existing coordinator, atomic membership
+  tombstone/scoped authority and organization policy epochs with protected
+  removal audit/outbox effects. Existing schemas suffice; readmission cannot
+  revive old team bindings or repeat the historical departure.
+
 - Add ownership transfer through the existing coordinator, conserving the
   owner count and atomically advancing both memberships, scoped authorities,
   organization policy epoch and protected audit/lifecycle effects. Exact

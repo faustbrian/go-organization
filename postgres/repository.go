@@ -53,7 +53,7 @@ func (r *Repository) Read(ctx context.Context, q organization.Query) (organizati
 	if ctx == nil || r == nil || r.pool == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) {
 		return organization.View{}, organization.ErrInvalidInput
 	}
-	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.Update && q.Operation != organization.AddMember && q.Operation != organization.RemoveMember && q.Operation != organization.OwnerTransfer {
+	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.Update && q.Operation != organization.AddMember && q.Operation != organization.RemoveMember && q.Operation != organization.LeaveMember && q.Operation != organization.OwnerTransfer {
 		if !isTeamOperation(q.Operation) {
 			return organization.View{}, organization.ErrInvalidInput
 		}
@@ -89,7 +89,7 @@ WHERE o.tenant_id=$1 AND o.organization_id=$2 AND a.user_id=$3 AND o.state='acti
 	if isTeamOperation(q.Operation) {
 		return r.readTeams(bounded, q, v)
 	}
-	if q.Operation == organization.AddMember || q.Operation == organization.RemoveMember || q.Operation == organization.OwnerTransfer {
+	if q.Operation == organization.AddMember || q.Operation == organization.RemoveMember || q.Operation == organization.LeaveMember || q.Operation == organization.OwnerTransfer {
 		if !scope(string(q.TargetID)) {
 			return organization.View{}, organization.ErrInvalidInput
 		}

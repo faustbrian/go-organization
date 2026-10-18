@@ -355,7 +355,7 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 				allow = r.Resource.Type == "identity.request-admission" && r.Resource.ID == "identity.password.verify" || r.Resource.Type == "identity.user" && string(r.Resource.ID) == string(r.Subject.ID)
 			case "identity.session.revoke-one", "identity.session.revoke-one.recover":
 				allow = r.Resource.Type == "identity.user" && string(r.Resource.ID) == string(r.Subject.ID)
-			case "identity.organization.create", "identity.organization.update", "identity.organization.member.add", "identity.organization.member.remove", "identity.organization.get", "identity.organization.member.list", "identity.organization.owner-transfer":
+			case "identity.organization.create", "identity.organization.update", "identity.organization.member.add", "identity.organization.member.remove", "identity.organization.member.leave", "identity.organization.get", "identity.organization.member.list", "identity.organization.owner-transfer":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.organization.team.create", "identity.organization.team.member-add", "identity.organization.team.member-remove", "identity.organization.team.list", "identity.organization.team.list-mine", "identity.organization.team.member-list", "identity.organization.team.get", "identity.organization.team.update", "identity.organization.team.delete":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
