@@ -15,6 +15,7 @@ import (
 const (
 	InvitationSend   Operation = "identity.organization.invitation-send"
 	InvitationAccept Operation = "identity.organization.invitation.accept"
+	InvitationCancel Operation = "identity.organization.invitation.cancel"
 	InvitationGet    Operation = "identity.organization.invitation.get"
 	InvitationList   Operation = "identity.organization.invitation.list"
 )
@@ -26,6 +27,8 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 		schema = "organization-invitation-send"
 	case InvitationAccept:
 		schema = "organization-invitation-accept"
+	case InvitationCancel:
+		schema = "organization-invitation-cancel"
 	default:
 		return identity.FeatureOperation{}
 	}
@@ -34,13 +37,14 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 
 // InvitationStatus describes the selected durable lifecycle. Zero is invalid.
 // Expired is a non-authorizing projection of exclusive expiry, not an exposed
-// expire/cancel/resend command. Accepted records never become pending again.
+// expire/resend command. Accepted and cancelled records never become pending again.
 type InvitationStatus uint8
 
 const (
 	InvitationPending InvitationStatus = iota + 1
 	InvitationAccepted
 	InvitationExpired
+	InvitationCancelled
 )
 
 // Invitation is safe scalar metadata. It contains neither a transport address
@@ -128,7 +132,8 @@ type InvitationVerifier interface {
 	Verify(context.Context, capability.Proof, capability.Purpose, string) (capability.Grant, error)
 }
 
-// InvitationConfig selects only owner-send/member-accept for existing verified
+// InvitationConfig selects owner-send/member-accept and administrator cancellation
+// for existing verified
 // email recipients. Lifetime follows reference bounds15m..30d; MaximumPending
 // follows1..10000. Zero is invalid. The composition selects48h/100 explicitly,
 // and must enlarge capability cryptographic lifetime limits to match; the root
@@ -352,7 +357,7 @@ func (s *InvitationService) PrepareAccept(ctx context.Context, r InvitationAccep
 }
 
 func validInvitation(i Invitation, tenant identity.TenantID, org ID) bool {
-	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || i.Status == InvitationAccepted && i.Version == 2
+	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled) && i.Version == 2
 	return safeID(string(i.ID)) && i.TenantID == tenant && i.OrganizationID == org && safeID(string(i.RecipientUserID)) && safeID(string(i.RecipientIdentifierID)) && i.RecipientIdentifierVersion > 0 && safeID(string(i.CreatedBy)) && i.Role == RoleMember && versionValid && !i.ExpiresAt.IsZero() && i.ExpiresAt.Equal(i.ExpiresAt.UTC().Truncate(time.Second))
 }
 

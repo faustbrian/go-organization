@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add exact-version pending invitation cancellation for current owners and
+  administrators, with terminal cancelled metadata and original-command custody.
+  Recipient proof and current recipient credentials are not cancellation authority.
+
 - Add authenticated current-subject organization listing with bounded visible
   pages, stable scoped cursors, per-organization policy filtering and post-policy
   authority/freshness revalidation. The repository list capability is additive.

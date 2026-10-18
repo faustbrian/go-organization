@@ -71,7 +71,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Invitation resend/cancel/reject, recipient invitation listing, dynamic team permissions, custom
+Invitation resend/reject, recipient invitation listing, dynamic team permissions, custom
 roles, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
@@ -79,8 +79,9 @@ operations. Their presence in planning material does not make them available.
 
 ## Selected invitation boundary
 
-The storage-neutral `InvitationService` adds owner-send and intended-recipient
-acceptance preparation to the same immutable `Command`/`UnitOfWork` contract.
+The storage-neutral `InvitationService` adds owner-send, intended-recipient
+acceptance and owner/administrator cancellation preparation to the same immutable
+`Command`/`UnitOfWork` contract.
 This root boundary alone is not durable invitation issuance or consumption;
 the native `postgres.NewInvitationService` supplies the sole coordinator,
 capability and delivery owners from actual public configuration. Applications
@@ -100,7 +101,7 @@ delivery owner's state/effect ID. They expose no transport address, proof or
 encrypted custody. Provider `Accepted` is not confirmed `Delivered`. Pending
 records project as expired at the exclusive deadline without a new mutation.
 Listing uses exclusive invitation-ID keysets with limits1–100. Recipient listing,
-prospective-user signup, grants above member and all resend/cancel variants are
+prospective-user signup, grants above member and resend variants are
 not selected by this profile.
 
 Configuration explicitly selects a lifetime within15 minutes–30 days and a
@@ -124,6 +125,19 @@ existing `membership.created.v1` transition for its actual membership version;
 an invitation event must not masquerade as that membership event. Exact audit
 actions are `identity.organization.create_invitation` and
 `identity.organization.accept_invitation`.
+
+`PrepareCancel(InvitationCancelRequest)` selects the exact live pending
+invitation and expected organization/invitation versions. It authenticates a
+current owner or administrator, not the recipient, and needs no invitation
+proof or current recipient email. The distinct callable operation is
+`identity.organization.invitation.cancel`; its canonical audit action is
+`identity.organization.cancel_invitation` (standard retention), paired with
+`invitation.cancelled.v1` (invitation1→2). Existing send/accept retention is
+unchanged. Cancellation grants no membership and changes no organization or
+global identity authority. Cancelled IDs remain terminal: a still
+cryptographically valid predecessor proof, including an already-prepared
+acceptance, cannot pass the shared pending/version fence. Retries preserve the
+original command; metadata recovery requires current management authority.
 
 ## Lifecycle and ownership
 

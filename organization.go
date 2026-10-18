@@ -510,7 +510,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 		return out, ErrInvalidInput
 	}
 	now := s.config.Clock.Now()
-	if c.state.input.Session.ValidateAt(now) != nil || c.state.input.Operation == InvitationAccept && !now.Before(c.state.input.Invitation.Record.ExpiresAt) {
+	if c.state.input.Session.ValidateAt(now) != nil || (c.state.input.Operation == InvitationAccept || c.state.input.Operation == InvitationCancel) && !now.Before(c.state.input.Invitation.Record.ExpiresAt) {
 		return out, ErrForbidden
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
@@ -531,7 +531,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	if err := bounded.Err(); err != nil {
 		return out, err
 	}
-	if x.Session.ValidateAt(now) != nil || x.Operation == InvitationAccept && !now.Before(x.Invitation.Record.ExpiresAt) {
+	if x.Session.ValidateAt(now) != nil || (x.Operation == InvitationAccept || x.Operation == InvitationCancel) && !now.Before(x.Invitation.Record.ExpiresAt) {
 		return out, ErrForbidden
 	}
 	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, now) {
@@ -540,7 +540,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	attempted = true
 	out, err = work.Execute(bounded, c)
 	before := x.Organization.Version
-	if x.Operation == InvitationSend || x.Operation == InvitationAccept {
+	if x.Operation == InvitationSend || x.Operation == InvitationAccept || x.Operation == InvitationCancel {
 		// The sole native receipt describes its invitation aggregate. Acceptance
 		// also creates a membership, but must not relabel that second event or
 		// unrelated organization policy epoch as the invitation transition.
