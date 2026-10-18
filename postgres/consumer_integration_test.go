@@ -395,6 +395,7 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 	if _, e := service.ListMembers(ctx, read); !errors.Is(e, organization.ErrForbidden) {
 		t.Fatal("removed genuine actor retained member-list access", e)
 	}
+	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
 	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, signinOwner)
 }
 

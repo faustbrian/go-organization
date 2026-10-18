@@ -134,6 +134,21 @@ func (s *Service) PrepareAddMember(ctx context.Context, r organization.MemberReq
 	}
 	return s.prepare(ctx, c, network)
 }
+
+// PrepareUpdate freezes a bounded Name/Slug replacement with current owner or
+// administrator admission, the expected organization version and native
+// privileged counters. Execute performs the sole durable attempt; Recover
+// reconciles its exact command without replaying a lost commit response.
+func (s *Service) PrepareUpdate(ctx context.Context, r organization.UpdateRequest, network string) (PreparedCommand, error) {
+	if s == nil {
+		return PreparedCommand{}, organization.ErrInvalidInput
+	}
+	c, e := s.core.PrepareUpdate(ctx, r)
+	if e != nil {
+		return PreparedCommand{}, e
+	}
+	return s.prepare(ctx, c, network)
+}
 func (s *Service) PrepareRemoveMember(ctx context.Context, r organization.MemberRequest, network string) (PreparedCommand, error) {
 	if s == nil {
 		return PreparedCommand{}, organization.ErrInvalidInput
@@ -269,13 +284,45 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	if op != organization.Create {
-		if _, e = s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID}); e != nil {
-			return organization.StoreResult{}, e
+		view, readErr := s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
+		if readErr != nil {
+			return organization.StoreResult{}, readErr
+		}
+		if op == organization.Update {
+			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
+				return organization.StoreResult{}, e
+			}
 		}
 	}
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(b.UserID)}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
 	u := &unitOfWork{service: s, recovery: &recoveryInput{binding: b, caller: caller, observed: observed}}
 	return u.Recover(bounded, b.CommandID)
+}
+
+// Historical command disclosure is not an org:update grant. Recheck the same
+// current management role and organization policy used by preparation, before
+// the kernel separately enforces its exact identity.user disclosure policy.
+func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.CommandBinding, view organization.View) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = organization.ErrUnavailable
+		}
+	}()
+	if view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
+		return organization.ErrForbidden
+	}
+	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(organization.Update), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(b.RecordID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(view.Organization.Version, 10))}}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
+	decision, err := s.config.Authorization.Decide(ctx, caller)
+	if err != nil {
+		return storageError(ctx, err)
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if decision.Outcome != authorization.Allow || decision.Revision != caller.PolicyRevision {
+		return organization.ErrForbidden
+	}
+	return nil
 }
 
 type recoveryInput struct {

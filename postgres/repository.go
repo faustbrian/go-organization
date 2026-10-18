@@ -53,7 +53,7 @@ func (r *Repository) Read(ctx context.Context, q organization.Query) (organizati
 	if ctx == nil || r == nil || r.pool == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) {
 		return organization.View{}, organization.ErrInvalidInput
 	}
-	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.AddMember && q.Operation != organization.RemoveMember {
+	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.Update && q.Operation != organization.AddMember && q.Operation != organization.RemoveMember {
 		return organization.View{}, organization.ErrInvalidInput
 	}
 	if q.Operation == organization.ListMembers && (q.Limit < 1 || q.Limit > 100 || q.Cursor != "" && !scope(string(q.Cursor))) {

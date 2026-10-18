@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native organization name/slug updates through the existing coordinator,
+  with current owner/administrator authority, tenant-unique slugs, expected
+  versions, atomic protected audit/lifecycle effects and exact-command recovery.
+  The existing schema suffices; membership and global authority are unchanged.
+
 - Add native owner-send and existing verified-recipient acceptance through the
   sole identity Coordinator, shared one-use capability and encrypted delivery
   owners. Acceptance atomically updates membership/scoped authority and emits

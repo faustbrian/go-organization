@@ -48,6 +48,22 @@ outcome and may return a nil error.
 
 ## Persistence and concurrency
 
+`PrepareUpdate(ctx, organization.UpdateRequest, trustedCanonicalClientIP)`
+uses the same `Execute`/`Recovery` path for bounded `Name`/`Slug` replacement.
+It admits only current owners/administrators and fences the exact expected
+organization version, original session, credential and current global/scoped
+authorization. Tenant serialization protects slug uniqueness against both
+create and update. Identical replacements return `ErrConflict` before execution;
+stale versions and tenant-scoped slug collisions conflict without effects.
+The existing migration already supplies these fields and uniqueness; no schema
+upgrade or normalization change is introduced. Unmentioned future fields are
+not cleared. Each successful update advances the organization/policy epoch by
+one and atomically emits `organization.updated.v1` with protected audit action
+`identity.organization.update`. Membership versions/counts and subject/global
+authority remain unchanged. Names/slugs are absent from audit/outbox payloads.
+Use authenticated `Get` for the current updated view, not historical recovery
+as an authorization grant.
+
 The fixed `organization` schema stores organizations, membership tombstones,
 cardinality counts and exact participant effect bindings. Effect bindings are
 participant evidence, not a second journal. Domain and scoped authorization
@@ -148,7 +164,9 @@ records; they are not genuine sign-in evidence.
 `go-identity/reference` owners on the same primary: two users take actual
 signup, native queued verification delivery, capability confirmation and
 password sign-in before their issued sessions drive organization
-create/get/admit/list/remove and scoped denial. Only the bounded email sender
+create/get/update/admit/list/remove and scoped denial. Real owner and
+administrator metadata updates preserve membership authority, while a genuine
+member is denied. Only the bounded email sender
 and outbound HIBP HTTP response are controlled provider seams. No user,
 credential, authentication proof or session is inserted manually in that case.
 The same case continues through actual invitation send, captured encrypted

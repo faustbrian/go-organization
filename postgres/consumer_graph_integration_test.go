@@ -353,7 +353,7 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 			switch r.Action {
 			case "identity.session.revoke-one", "identity.session.revoke-one.recover":
 				allow = r.Resource.Type == "identity.user" && string(r.Resource.ID) == string(r.Subject.ID)
-			case "identity.organization.create", "identity.organization.member.add", "identity.organization.member.remove", "identity.organization.get", "identity.organization.member.list":
+			case "identity.organization.create", "identity.organization.update", "identity.organization.member.add", "identity.organization.member.remove", "identity.organization.get", "identity.organization.member.list":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.organization.invitation-send", "identity.organization.invitation.accept", "identity.organization.invitation.get", "identity.organization.invitation.list":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"

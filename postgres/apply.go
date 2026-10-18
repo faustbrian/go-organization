@@ -60,6 +60,8 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 	}
 	if c.operation == organization.Create {
 		e = p.create(ctx, w, c)
+	} else if c.operation == organization.Update {
+		e = p.update(ctx, w, c)
 	} else {
 		e = p.mutateMember(ctx, w, c)
 	}
@@ -76,6 +78,63 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 		return identity.FeatureReceipt{}, e
 	}
 	return identity.FeatureReceipt{Operation: c.spec.Operation, BeforeVersion: c.org.Version, AfterVersion: c.org.Version + 1}, nil
+}
+
+func (p *Contributor) update(ctx context.Context, w kernel.Work, c nativeCommand) error {
+	b := c.spec.Binding
+	var version, state, name, slug string
+	rows, e := w.Query(ctx, `SELECT version::text,state,name,slug FROM organization.organizations WHERE tenant_id=$1 AND organization_id=$2 FOR UPDATE`, string(b.TenantID), string(c.org.ID))
+	if e = one(rows, e, &version, &state, &name, &slug); e != nil {
+		return e
+	}
+	v, e := positive(version)
+	if e != nil {
+		return e
+	}
+	if state != "active" {
+		return identity.ForbiddenError{}
+	}
+	if v != c.org.Version {
+		return identity.ConflictError{}
+	}
+	actor, e := readMember(ctx, w, b.TenantID, c.org.ID, identity.UserID(b.ActorID))
+	if e != nil {
+		return e
+	}
+	if !actor.Active || actor.Role != c.actor.Role || actor.Version != c.actor.Version || actor.AuthorizationVersion != c.actor.AuthorizationVersion || actor.Role != organization.RoleOwner && actor.Role != organization.RoleAdministrator {
+		return identity.ForbiddenError{}
+	}
+	scope, e := OrganizationAuthorityScope(b.TenantID, c.org.ID, actor.UserID)
+	if e != nil {
+		return e
+	}
+	if e = authority.RequireAuthority(ctx, w, scope, actor.AuthorizationVersion, p.config.Session.MaximumDuration); e != nil {
+		return authorityError(e)
+	}
+	// The selected profile rejects identical replacements rather than emitting
+	// a fictitious state transition. Tenant serialization also fences the unique
+	// slug check against concurrent create/update without changing its scope.
+	if name == c.org.Name && slug == c.org.Slug {
+		return identity.ConflictError{}
+	}
+	var duplicate bool
+	rows, e = w.Query(ctx, `SELECT EXISTS(SELECT 1 FROM organization.organizations WHERE tenant_id=$1 AND slug=$2 AND organization_id<>$3)`, string(b.TenantID), c.org.Slug, string(c.org.ID))
+	if e = one(rows, e, &duplicate); e != nil {
+		return e
+	}
+	if duplicate {
+		return identity.ConflictError{}
+	}
+	// Metadata changes advance the existing aggregate/policy epoch, never a
+	// member/global authority or future typed additional fields.
+	n, e := w.Exec(ctx, `UPDATE organization.organizations SET name=$4,slug=$5,version=version+1 WHERE tenant_id=$1 AND organization_id=$2 AND version=$3::numeric AND version<18446744073709551615 AND state='active'`, string(b.TenantID), string(c.org.ID), strconv.FormatUint(c.org.Version, 10), c.org.Name, c.org.Slug)
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
 }
 
 func (p *Contributor) create(ctx context.Context, w kernel.Work, c nativeCommand) error {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/faustbrian/go-authorization/v3"
 	authority "github.com/faustbrian/go-authorization/v3/postgres"
@@ -64,7 +65,7 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.membership", Version: 1}
 }
 func (*Contributor) FeatureOperations() []identity.FeatureOperation {
-	return []identity.FeatureOperation{organization.Create.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
+	return []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
 }
 func (ContributorConfig) Format(s fmt.State, _ rune) {
 	_, _ = s.Write([]byte("organization.postgres.ContributorConfig(redacted)"))
@@ -170,6 +171,10 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		if c.org.Version != 0 || c.actor.Version != 0 || c.target.Version != 0 || c.role != organization.RoleOwner || string(s.Binding.ActorID) != string(s.Binding.UserID) || c.user.Version != 0 {
 			return bad()
 		}
+	} else if op == organization.Update {
+		if c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.role != "" || c.user.Version != 0 || c.user.Status != "" || string(s.Binding.ActorID) != string(s.Binding.UserID) || !validMetadata(c.org.Name, c.org.Slug) {
+			return bad()
+		}
 	} else {
 		if c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.user.Validate(s.Binding.TenantID) != nil {
 			return bad()
@@ -200,12 +205,33 @@ func events(op organization.Operation) (string, string) {
 	switch op {
 	case organization.Create:
 		return "organization.created.v1", "identity.organization.create"
+	case organization.Update:
+		return "organization.updated.v1", "identity.organization.update"
 	case organization.AddMember:
 		return "membership.created.v1", "identity.organization.add_member"
 	case organization.RemoveMember:
 		return "membership.removed.v1", "identity.organization.remove_member"
 	}
 	return "", ""
+}
+
+// The native public contributor must enforce the same bounded, non-normalizing
+// metadata contract even when a caller supplies a feature command directly.
+func validMetadata(name, slug string) bool {
+	if len(name) == 0 || len(name) > 256 || !utf8.ValidString(name) || strings.TrimSpace(name) != name || len(slug) == 0 || len(slug) > 63 || slug[0] == '-' || slug[len(slug)-1] == '-' {
+		return false
+	}
+	for _, r := range name {
+		if r < ' ' || r == 127 {
+			return false
+		}
+	}
+	for _, b := range []byte(slug) {
+		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand, command identity.Command, final bool) error {
