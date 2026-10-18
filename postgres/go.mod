@@ -7,7 +7,7 @@ require (
 	github.com/faustbrian/go-audit/postgres v1.0.2-0.20261015062502-d62df280d85e
 	github.com/faustbrian/go-authentication/v2 v2.0.2-0.20261015052822-d9f5132c7f68
 	github.com/faustbrian/go-authorization/v3 v3.0.1-0.20261015052455-a55bbebb1060
-	github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261018020338-07437fc7f82a
+	github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261018045347-bf9ca8a88b3e
 	github.com/faustbrian/go-capability/v2 v2.0.2-0.20261015044219-caab644d2fec
 	github.com/faustbrian/go-clock v1.2.0
 	github.com/faustbrian/go-http-client/v2 v2.1.0
@@ -24,7 +24,7 @@ require (
 	github.com/faustbrian/go-identity/otp/postgres v0.0.0-20261016084404-80e379c107f1
 	github.com/faustbrian/go-identity/password v0.0.0-20261015110443-ed660e780fdc
 	github.com/faustbrian/go-identity/password/postgres v0.0.0-20261018024526-612855183150
-	github.com/faustbrian/go-identity/postgres v0.0.0-20261018023018-4035a0edfc65
+	github.com/faustbrian/go-identity/postgres v0.0.0-20261018061311-538b44363d5a
 	github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789
 	github.com/faustbrian/go-identity/risk v0.0.0-20261018014749-05a10a28273a
 	github.com/faustbrian/go-identity/risk/hibp v0.0.0-20261018021354-75e10d9681e0
@@ -32,11 +32,11 @@ require (
 	github.com/faustbrian/go-identity/session v0.0.0-20261018014749-05a10a28273a
 	github.com/faustbrian/go-identity/session/postgres v0.0.0-20261018023512-bb37a493e5eb
 	github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc
-	github.com/faustbrian/go-organization v0.0.0-20261018043452-d3aef10016de
+	github.com/faustbrian/go-organization v0.0.0-20261018060448-8d91c42db4d3
 	github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff
 	github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7
 	github.com/faustbrian/go-secret-envelope/v2 v2.0.1
-	github.com/faustbrian/go-transactional-outbox/postgres/identity v0.0.0-20261015133445-5c139522d060
+	github.com/faustbrian/go-transactional-outbox/postgres/identity v0.0.0-20261018044906-f4380909987d
 	github.com/faustbrian/go-transactional-outbox/v2 v2.0.2-0.20261015062550-37ea15436ae9
 	github.com/jackc/pgx/v5 v5.11.0
 )

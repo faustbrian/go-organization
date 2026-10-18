@@ -84,4 +84,37 @@ func TestInvitationMigrationPreservesMembershipAndEnforcesScope(t *testing.T) {
 	if err = f.pool.Raw().QueryRow(f.ctx, `SELECT (SELECT count(*) FROM organization.invitations),member_count,version::integer FROM organization.organizations WHERE tenant_id='org-test-basic' AND organization_id=$1`, org).Scan(&invitations, &members, &orgVersion); err != nil || invitations != 1 || members != 1 || orgVersion != 1 {
 		t.Fatal("invalid invitations changed domain state", err)
 	}
+	// The next forward migration must preserve populated metadata-only rows,
+	// without manufacturing an original issued capability for those rows.
+	capabilitySteps, err := (organizationpg.InvitationCapabilityMigrationSource{Version: 302}).Load(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err = migrations.NewRunner(append(append(append(migrationList(nil), f.history...), additional...), capabilitySteps...), backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.Up(f.ctx); err != nil {
+		t.Fatal("populated original-issuance upgrade failed", err)
+	}
+	if _, err = runner.Up(f.ctx); err != nil {
+		t.Fatal("original-issuance migration replay failed", err)
+	}
+	var legacy bool
+	if err = f.pool.Raw().QueryRow(f.ctx, `SELECT capability_envelope IS NULL AND capability_replay_key_version IS NULL FROM organization.invitations WHERE tenant_id='org-test-basic' AND invitation_id='invitation-a'`).Scan(&legacy); err != nil || !legacy {
+		t.Fatal("migration invented capability custody for legacy row", err)
+	}
+	for _, statement := range []string{
+		`UPDATE organization.invitations SET capability_replay_key_version=1`,
+		`UPDATE organization.invitations SET capability_envelope=decode(repeat('01',32),'hex')`,
+		`UPDATE organization.invitations SET capability_envelope=decode(repeat('00',32),'hex'),capability_replay_key_version=1`,
+		`UPDATE organization.invitations SET capability_envelope=decode(repeat('01',32),'hex'),capability_replay_key_version=4294967296`,
+	} {
+		if _, err = f.pool.Raw().Exec(f.ctx, statement); err == nil {
+			t.Fatal("invalid private issuance pair persisted")
+		}
+	}
+	if _, err = f.pool.Raw().Exec(f.ctx, `UPDATE organization.invitations SET capability_envelope=decode(repeat('01',32),'hex'),capability_replay_key_version=1`); err != nil {
+		t.Fatal("valid original issuance reference rejected", err)
+	}
 }

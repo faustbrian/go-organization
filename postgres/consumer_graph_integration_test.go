@@ -346,12 +346,19 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 		if r.Subject.Kind == authorization.SubjectServiceAccount && r.Subject.ID == "baseline-worker" && r.Action == "identity.delivery.process" {
 			allow = r.Resource.Type == "identity.delivery-worker" && r.Resource.ID == "baseline-worker"
 		}
+		if r.Subject.Kind == authorization.SubjectServiceAccount && r.Subject.ID == "invitation-worker" && r.Action == "identity.delivery.process" {
+			allow = r.Resource.Type == "identity.delivery-worker" && r.Resource.ID == "invitation-worker"
+		}
 		if r.Subject.Kind == authorization.SubjectUser {
 			switch r.Action {
 			case "identity.session.revoke-one", "identity.session.revoke-one.recover":
 				allow = r.Resource.Type == "identity.user" && string(r.Resource.ID) == string(r.Subject.ID)
 			case "identity.organization.create", "identity.organization.member.add", "identity.organization.member.remove", "identity.organization.get", "identity.organization.member.list":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
+			case "identity.organization.invitation-send", "identity.organization.invitation.accept", "identity.organization.invitation.get", "identity.organization.invitation.list":
+				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
+			case "identity.delivery.status-get":
+				allow = r.Resource.Type == "identity.user"
 			}
 		}
 	}

@@ -232,7 +232,7 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	register := func() (organization.Authentication, identity.UserID) {
+	register := func() (organization.Authentication, identity.UserID, func() organization.Authentication) {
 		t.Helper()
 		client := server.Client()
 		client.Timeout = 6 * time.Second
@@ -301,32 +301,42 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 		if status != 200 || json.Unmarshal(body, &confirmed) != nil || !confirmed.Confirmed || confirmed.CommitOutcome != "committed" || len(cookies) != 0 {
 			t.Fatal("actual confirmation failed or issued session", status)
 		}
-		flow = preauth("password")
-		status, body, cookies = call("/v1/password/signin", map[string]any{"flowID": string(flow.FlowID), "identifier": address, "password": candidate, "callbackURL": origin + "/confirm"}, "")
-		var signed passwordhttp.SigninResponse
-		if status != 200 || json.Unmarshal(body, &signed) != nil || !signed.SignedIn || signed.CommitOutcome != "committed" || len(cookies) != 1 {
-			t.Fatal("actual password signin failed", status)
+		signin := func() (organization.Authentication, identity.UserID) {
+			flow = preauth("password")
+			status, body, cookies = call("/v1/password/signin", map[string]any{"flowID": string(flow.FlowID), "identifier": address, "password": candidate, "callbackURL": origin + "/confirm"}, "")
+			var signed passwordhttp.SigninResponse
+			if status != 200 || json.Unmarshal(body, &signed) != nil || !signed.SignedIn || signed.CommitOutcome != "committed" || len(cookies) != 1 {
+				t.Fatal("actual password signin failed", status)
+			}
+			token, e := session.ParseToken(cookies[0].Value)
+			if e != nil {
+				t.Fatal("issued session token rejected")
+			}
+			credential, e := session.NewCredential(session.CredentialBearer, token)
+			if e != nil {
+				t.Fatal(e)
+			}
+			observed, e := sessions.Get(ctx, session.GetRequest{TenantID: baselineTenant, Credential: credential})
+			if e != nil || observed.ValidateAt(time.Now()) != nil {
+				t.Fatal("real primary SessionService rejected issued session", e)
+			}
+			bindings, e := observed.Session.Bindings()
+			if e != nil {
+				t.Fatal(e)
+			}
+			return organization.Authentication{TenantID: baselineTenant, Bearer: auth.NewBearerCredential(cookies[0].Value)}, bindings.UserID
 		}
-		token, e := session.ParseToken(cookies[0].Value)
-		if e != nil {
-			t.Fatal("issued session token rejected")
+		first, user := signin()
+		return first, user, func() organization.Authentication {
+			next, nextUser := signin()
+			if nextUser != user {
+				t.Fatal("fresh genuine signin changed original user")
+			}
+			return next
 		}
-		credential, e := session.NewCredential(session.CredentialBearer, token)
-		if e != nil {
-			t.Fatal(e)
-		}
-		observed, e := sessions.Get(ctx, session.GetRequest{TenantID: baselineTenant, Credential: credential})
-		if e != nil || observed.ValidateAt(time.Now()) != nil {
-			t.Fatal("real primary SessionService rejected issued session", e)
-		}
-		bindings, e := observed.Session.Bindings()
-		if e != nil {
-			t.Fatal(e)
-		}
-		return organization.Authentication{TenantID: baselineTenant, Bearer: auth.NewBearerCredential(cookies[0].Value)}, bindings.UserID
 	}
-	owner, ownerID := register()
-	member, memberID := register()
+	owner, ownerID, signinOwner := register()
+	member, memberID, signinRecipient := register()
 	if ownerID == memberID {
 		t.Fatal("real registrations did not create distinct users")
 	}
@@ -385,6 +395,7 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 	if _, e := service.ListMembers(ctx, read); !errors.Is(e, organization.ErrForbidden) {
 		t.Fatal("removed genuine actor retained member-list access", e)
 	}
+	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, signinOwner)
 }
 
 func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte) *organizationpg.Service {

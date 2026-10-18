@@ -14,8 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// InvitationRepositoryConfig selects the exact retained policy revision of the
-// real delivery status owner. It must match that owner's configuration; no
+// InvitationRepositoryConfig selects the status owner's authorization revision
+// (delivery/postgres.EnqueueConfig.PolicyVersion), not a retained delivery.Config
+// profile version from EnqueueConfig.Policies. It must match that owner; no
 // delivery permission is inferred from an invitation ID or recipient metadata.
 type InvitationRepositoryConfig struct{ DeliveryPolicyVersion uint64 }
 

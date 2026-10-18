@@ -59,7 +59,7 @@ counts and last-owner invariants; no callback or external network work runs
 under it. Membership removal changes only that organization's subject authority,
 never global user/credential epochs. Tombstone reactivation never resets versions.
 
-## Invitation persistence and reads
+## Invitations
 
 `InvitationMigrationSource` is a separate forward migration after the original
 membership source. It preserves the installed migration bytes and stores only
@@ -81,10 +81,59 @@ primary rows before delivery-owner calls; the1–100 bound also bounds per-item
 status reads. One outer budget withholds an incomplete page rather than returning
 partial metadata. This first profile makes no bulk-list throughput claim.
 
-These persistence/read prerequisites do not alone implement invitation send,
-capability consumption, membership creation or ambiguous-command recovery.
-Those require the closed shared coordinator profile and an actual invitation
-consumer proof; seeded read fixtures must not be presented as that journey.
+For native send/accept, also install `InvitationCapabilityMigrationSource` after
+the invitation-read migration. It retains the original issuer envelope identity
+and replay-key version privately, not the bearer or a second consumption ledger.
+Existing invitation rows retain paired NULL values and cannot be accepted by
+inferring custody from a presented proof.
+
+Construct `NewInvitationService` with the same primary/session/policy owners,
+actual shared issuer and preparation codec configuration, risk repository,
+encrypted delivery contributor, renderer and status service. The issuer's
+explicit maximum lifetime must cover the selected invitation lifetime (48 hours
+by default); delivery dedupe must cover that lifetime plus 24 hours. Configure
+`Delivery.PolicyVersion` and `ProviderVersion` from their retained delivery
+profiles, and `StatusPolicyVersion` from `EnqueueConfig.PolicyVersion`, the
+independent current status authorization revision. They are not interchangeable.
+
+`PrepareSend` freezes an authorized genuine owner and the exact current verified
+recipient. `Execute` repeats the current external action policy before native
+reservation; prepared authority is not a cached policy allowance. It generates
+custody only after the kernel acknowledges the
+original protected preparation, then atomically persists the invitation, shared
+one-use grant and encrypted delivery intent. Run the actual delivery owner's
+worker separately; this service never calls the sender under a domain lock.
+`PrepareAccept` binds the genuine recipient session and all original signed
+organization/role/identifier/version/expiry scope. Its native execution consumes
+that grant, creates or reactivates the actual member and organization-scoped
+authority, and accepts the invitation in the same transaction. The primary
+`invitation.accepted.v1` event is paired with a distinct `membership.created.v1`
+event using the actual member versions. Existing membership is a conflict, not
+an implicit successful accept. Get/List remain owner-only metadata operations;
+neither projections nor recovery return bearer custody.
+
+Persist `PreparedInvitation.Recovery()` before execution. After an unknown
+outcome, pass that safe handle and current genuine authentication to `Recover`,
+including on a new service instance. Historical metadata queries recheck the
+current original actor and owning organization/recipient policy; they neither
+require original execution expiry nor renew it. Send recovery reads the original
+organization correlation from the sole kernel's frozen preparation declaration,
+so acknowledged preparation can be observed and reconciled even before an
+invitation row exists. Historical origin versions are not current authority;
+current owner/action policy is checked separately. Legacy or missing durable
+correlation fails closed rather than guessing that an unobserved send did not
+commit. A caller-selected different organization cannot redirect reconciliation.
+
+A definitive failed acceptance retains `NotCommitted` for its original command
+and terminal-releases the unused grant under the shared capability owner's
+contract. Zero uses does not make the proof reusable: a new command using it is
+denied. Domain, scoped authority and lifecycle writes roll back, but the pending
+invitation metadata remains until later lifecycle handling. An owner may send a
+new independent invitation within the pending limit; this profile allows that
+alongside an existing pending invitation. It does not silently reissue custody,
+resend delivery, cancel the old invitation or reclaim its pending-limit slot.
+Resend/cancel/reject/explicit-expire, recipient listing, teams and other full-goal
+profiles remain unimplemented.
 
 ## Verification and release
 
@@ -102,6 +151,10 @@ password sign-in before their issued sessions drive organization
 create/get/admit/list/remove and scoped denial. Only the bounded email sender
 and outbound HIBP HTTP response are controlled provider seams. No user,
 credential, authentication proof or session is inserted manually in that case.
+The same case continues through actual invitation send, captured encrypted
+delivery and recipient acceptance; it checks concurrency, exact paired lifecycle
+events, wrong-scope denial, failed-accept terminal release, tombstone versions
+and lost-COMMIT recovery through a new service and fresh password session.
 Run it with `go test -tags integration -run TestOrganizationGenuinePasswordConsumer`.
 This remains the finite single-factor password profile, not full platform
 qualification or proof of unselected authentication/session profiles.

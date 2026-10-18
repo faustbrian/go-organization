@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add native owner-send and existing verified-recipient acceptance through the
+  sole identity Coordinator, shared one-use capability and encrypted delivery
+  owners. Acceptance atomically updates membership/scoped authority and emits
+  separate invitation and actual-membership lifecycle events.
+- Add persistable safe invitation recovery with current genuine authentication,
+  including new-service recovery after a lost commit acknowledgement. Metadata
+  never returns proof custody; definitive failed acceptance terminal-releases
+  the original grant rather than making it reusable under a new command.
+- Preserve original send organization correlation in the shared immutable
+  preparation declaration so interrupted sends recover before a domain row
+  exists, without treating caller-supplied organization IDs as authority.
+- Add an additive private issuer-identity migration; legacy read-only invitation
+  rows remain NULL and cannot accept inferred custody. Native construction now
+  requires explicit independent delivery-status authorization configuration.
 - Add a forward-only invitation persistence migration for exact recipient,
   organization, member-only grant, lifecycle and durable delivery-effect fences;
   preserve the original installed membership migration unchanged.

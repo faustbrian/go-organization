@@ -1,7 +1,8 @@
 # go-organization
 
-> **Status: experimental.** Only the explicit-organization membership profile
-> below is implemented. This is not a stable release or complete organization unit.
+> **Status: experimental.** Explicit-organization membership and the selected
+> existing-recipient invitation profile below are implemented. This is not a
+> stable release or complete organization unit.
 
 `go-organization` supplies storage-neutral organization policy and a
 [native PostgreSQL adapter](postgres/README.md). The selected profile creates
@@ -52,8 +53,9 @@ operations. Their presence in planning material does not make them available.
 The storage-neutral `InvitationService` adds owner-send and intended-recipient
 acceptance preparation to the same immutable `Command`/`UnitOfWork` contract.
 This root boundary alone is not durable invitation issuance or consumption;
-native composition must supply the sole coordinator, capability and delivery
-owners. Do not implement an application token store or transaction coordinator.
+the native `postgres.NewInvitationService` supplies the sole coordinator,
+capability and delivery owners from actual public configuration. Applications
+do not implement a token store or transaction coordinator.
 
 Send selects an existing active user and exact verified email identifier. It
 freezes the organization, recipient, identifier/version, member-only role and
@@ -78,6 +80,14 @@ composition must explicitly enlarge capability lifetime limits and delivery
 deduplication retention to at least lifetime+24 hours. No default capability
 policy is silently weakened. Neither verification nor metadata is permission
 to consume, and unknown command outcomes retain the original invitation ID.
+
+Native send/accept and new-service metadata recovery are exercised by the
+[genuine public consumer](postgres/invitation_consumer_integration_test.go).
+A definitive failed acceptance terminal-releases its unused grant: it is not
+reusable under a new command. A new owner-authorized send can issue a distinct
+grant within the pending limit; it does not silently resend or cancel the old
+pending row. Preserve the safe recovery handle before executing and reconcile
+ambiguous outcomes before selecting any new command.
 
 The owning lifecycle catalog adds `invitation.created.v1` (invitation0→1) and
 `invitation.accepted.v1` (invitation1→2). Acceptance also requires the distinct
