@@ -1,7 +1,8 @@
 // Package organization owns storage-neutral organization and membership policy.
-// Its first profile uses an explicitly selected organization and genuine bearer
-// sessions; active-session selection, invitations, teams and caches are not
-// implemented by this profile. Durable adapters own locking and atomic effects.
+// Its selected profiles use an explicitly selected organization and genuine
+// bearer sessions. Invitation preparation selects only existing verified email
+// recipients and member grants. Durable adapters own locking and atomic effects;
+// active-session selection, teams and caches remain unselected.
 package organization
 
 import (
@@ -56,7 +57,7 @@ const (
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
 	if o != Create && o != AddMember && o != RemoveMember {
-		return identity.FeatureOperation{}
+		return invitationDescriptor(o)
 	}
 	return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-membership", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 }
@@ -156,6 +157,9 @@ type StoreResult struct {
 	Receipt        identity.CommandResult
 	OrganizationID ID
 	MemberID       identity.UserID
+	// InvitationID is set only for invitation commands, including unknown
+	// outcomes. It identifies the original command, never a delivery claim.
+	InvitationID ID
 }
 
 // Config is explicit immutable policy. Limits are finite and enforced again by
@@ -238,6 +242,7 @@ type CommandInput struct {
 	Session                                          session.GetResult
 	Bearer                                           authentication.BearerCredential
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
+	Invitation                                       InvitationInput
 }
 
 type commandState struct {
@@ -373,7 +378,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	attempted := false
 	uncertain := func() StoreResult {
 		x := c.state.input
-		return StoreResult{OrganizationID: x.Organization.ID, MemberID: x.TargetUser.ID, Receipt: identity.CommandResult{Binding: x.Binding, Outcome: identity.CommitOutcomeUnknown, Feature: &identity.FeatureReceipt{Operation: x.Operation.Descriptor()}}}
+		return StoreResult{OrganizationID: x.Organization.ID, MemberID: x.TargetUser.ID, InvitationID: x.Invitation.Record.ID, Receipt: identity.CommandResult{Binding: x.Binding, Outcome: identity.CommitOutcomeUnknown, Feature: &identity.FeatureReceipt{Operation: x.Operation.Descriptor()}}}
 	}
 	defer func() {
 		if recover() != nil {
@@ -388,14 +393,23 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	if s == nil || ctx == nil || c.state == nil || c.state.owner != s || nilValue(work) {
 		return out, ErrInvalidInput
 	}
-	if c.state.input.Session.ValidateAt(s.config.Clock.Now()) != nil {
+	now := s.config.Clock.Now()
+	if c.state.input.Session.ValidateAt(now) != nil || c.state.input.Operation == InvitationAccept && !now.Before(c.state.input.Invitation.Record.ExpiresAt) {
 		return out, ErrForbidden
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
 	defer cancel()
 	attempted = true
 	out, err = work.Execute(bounded, c)
-	if out.Receipt.Outcome != identity.CommitOutcomeInvalid && (out.Receipt.Validate() != nil || out.Receipt.Binding != c.state.input.Binding || out.Receipt.Feature == nil || out.Receipt.Feature.Operation != c.state.input.Operation.Descriptor() || out.OrganizationID != c.state.input.Organization.ID || out.MemberID != c.state.input.TargetUser.ID || out.Receipt.Outcome == identity.CommitOutcomeCommitted && (out.Receipt.Feature.BeforeVersion != c.state.input.Organization.Version || out.Receipt.Feature.AfterVersion != c.state.input.Organization.Version+1)) {
+	x := c.state.input
+	before := x.Organization.Version
+	if x.Operation == InvitationSend || x.Operation == InvitationAccept {
+		// The sole native receipt describes its invitation aggregate. Acceptance
+		// also creates a membership, but must not relabel that second event or
+		// unrelated organization policy epoch as the invitation transition.
+		before = x.Invitation.Record.Version
+	}
+	if out.Receipt.Outcome != identity.CommitOutcomeInvalid && (out.Receipt.Validate() != nil || out.Receipt.Binding != x.Binding || out.Receipt.Feature == nil || out.Receipt.Feature.Operation != x.Operation.Descriptor() || out.OrganizationID != x.Organization.ID || out.MemberID != x.TargetUser.ID || out.InvitationID != x.Invitation.Record.ID || out.Receipt.Outcome == identity.CommitOutcomeCommitted && (out.Receipt.Feature.BeforeVersion != before || out.Receipt.Feature.AfterVersion != before+1)) {
 		return uncertain(), ErrUnavailable
 	}
 	if out.Receipt.Outcome == identity.CommitOutcomeInvalid && err == nil {

@@ -41,10 +41,50 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Invitations/delivery, teams, custom roles, ownership transfer, domain claims,
+Invitation resend/cancel/reject, recipient invitation listing, teams, custom
+roles, ownership transfer, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.
+
+## Selected invitation boundary
+
+The storage-neutral `InvitationService` adds owner-send and intended-recipient
+acceptance preparation to the same immutable `Command`/`UnitOfWork` contract.
+This root boundary alone is not durable invitation issuance or consumption;
+native composition must supply the sole coordinator, capability and delivery
+owners. Do not implement an application token store or transaction coordinator.
+
+Send selects an existing active user and exact verified email identifier. It
+freezes the organization, recipient, identifier/version, member-only role and
+exclusive expiry; it never accepts a caller-selected address or privileged role.
+Acceptance requires independent genuine session authentication and an exact
+one-use, non-bearer capability for that recipient, invitation and organization.
+Existing active membership conflicts without overwriting its role or consuming
+the capability. Current recipient, policy, expiry and membership must be fenced
+again by native execution, atomically with shared capability consumption.
+
+`Get`/`List` expose only current owner-authorized scalar metadata and the existing
+delivery owner's state/effect ID. They expose no transport address, proof or
+encrypted custody. Provider `Accepted` is not confirmed `Delivered`. Pending
+records project as expired at the exclusive deadline without a new mutation.
+Listing uses exclusive invitation-ID keysets with limits1–100. Recipient listing,
+prospective-user signup, grants above member and all resend/cancel variants are
+not selected by this profile.
+
+Configuration explicitly selects a lifetime within15 minutes–30 days and a
+pending bound within1–10000; the reference selection is48 hours/100. A48-hour
+composition must explicitly enlarge capability lifetime limits and delivery
+deduplication retention to at least lifetime+24 hours. No default capability
+policy is silently weakened. Neither verification nor metadata is permission
+to consume, and unknown command outcomes retain the original invitation ID.
+
+The owning lifecycle catalog adds `invitation.created.v1` (invitation0→1) and
+`invitation.accepted.v1` (invitation1→2). Acceptance also requires the distinct
+existing `membership.created.v1` transition for its actual membership version;
+an invitation event must not masquerade as that membership event. Exact audit
+actions are `identity.organization.create_invitation` and
+`identity.organization.accept_invitation`.
 
 ## Lifecycle and ownership
 

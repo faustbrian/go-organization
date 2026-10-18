@@ -21,7 +21,7 @@
           "build_tags": []
         }
       ],
-      "purpose": "Experimental explicit-organization policy for create, get, membership admission, listing and removal; later organization profiles remain unimplemented.",
+      "purpose": "Experimental explicit-organization membership policy and storage-neutral verified-recipient invitation preparation/read APIs; native invitation send/accept composition remains unfinished.",
       "lifecycle": "experimental",
       "kind": "public library",
       "releasable": true,
@@ -34,8 +34,10 @@
       "owned_dependencies": [
         "github.com/faustbrian/go-authentication/v2",
         "github.com/faustbrian/go-authorization/v3",
+        "github.com/faustbrian/go-capability/v2",
         "github.com/faustbrian/go-clock",
         "github.com/faustbrian/go-identity",
+        "github.com/faustbrian/go-identity/delivery",
         "github.com/faustbrian/go-identity/session"
       ],
       "reverse_owned_dependencies": [
@@ -59,7 +61,7 @@
         "secondary_capabilities": [
           "identity-and-access"
         ],
-        "responsibility": "Storage-neutral explicit-organization policy and exact native transaction handoff for the selected create and membership profile.",
+        "responsibility": "Storage-neutral explicit-organization membership and verified-recipient invitation policy with exact native transaction handoff; durable execution remains with the native owners.",
         "non_goals": [
           "Claim full organization-unit qualification, a stable API, or an available released version.",
           "Own enterprise single sign-on protocol behavior, SCIM wire behavior, billing, user interfaces, or application routing.",

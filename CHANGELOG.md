@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add selected storage-neutral invitation send/accept preparation for existing
+  verified email recipients and member-only grants, plus owner-only safe
+  metadata reads. Native capability/delivery composition is required for
+  durable execution; resend/cancel and recipient listing remain unselected.
+- Preserve invitation aggregate versions and the original invitation ID in
+  committed/unknown outcomes without changing existing membership receipts.
 - Add experimental explicit-organization create/read and membership
   admission/list/removal policy with real session admission, scoped permission
   checks, optimistic versions, bounded limits and last-owner protection.
