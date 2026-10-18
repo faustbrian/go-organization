@@ -2,7 +2,7 @@
 // Its selected profiles use an explicitly selected organization and genuine
 // bearer sessions. Invitation preparation selects only existing verified email
 // recipients and member grants. Durable adapters own locking and atomic effects;
-// active-session selection, teams and caches remain unselected.
+// active-session selection, dynamic team permissions and caches remain unselected.
 package organization
 
 import (
@@ -56,6 +56,9 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
+	if teamMutation(o) {
+		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-team", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
+	}
 	if o != Create && o != Update && o != AddMember && o != RemoveMember {
 		return invitationDescriptor(o)
 	}
@@ -122,17 +125,24 @@ type Query struct {
 	TargetID       identity.UserID
 	Cursor         identity.UserID
 	Limit          uint32
+	TeamID         ID
+	TeamCursor     string
 }
 
 // View is an independently owned primary snapshot. OwnerCount includes active
 // owners only; it is advisory until rechecked under the mutation's aggregate lock.
 type View struct {
-	Organization  Organization
-	Actor, Target Member
-	TargetUser    identity.User
-	OwnerCount    uint64
-	Members       []Member
-	NextCursor    identity.UserID
+	Organization   Organization
+	Actor, Target  Member
+	TargetUser     identity.User
+	OwnerCount     uint64
+	Members        []Member
+	NextCursor     identity.UserID
+	Team           Team
+	TeamMember     TeamMember
+	Teams          []Team
+	TeamMembers    []TeamMember
+	NextTeamCursor string
 }
 
 // Repository reads only authoritative owned organization state and delegates
@@ -175,6 +185,7 @@ type Config struct {
 	PolicyVersion                                    uint64
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	ValidateCanonicalID                              func(context.Context, ID) error
+	Teams                                            TeamConfig
 }
 
 // Service owns bounded authentication and pure policy/preparation, not durable
@@ -188,7 +199,7 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
@@ -258,6 +269,9 @@ type CommandInput struct {
 	Bearer                                           authentication.BearerCredential
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	Invitation                                       InvitationInput
+	Team                                             Team
+	TeamMember                                       TeamMember
+	Teams                                            TeamConfig
 }
 
 type commandState struct {

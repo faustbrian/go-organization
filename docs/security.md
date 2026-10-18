@@ -2,7 +2,14 @@
 
 The selected explicit-organization profile implements create/read and membership
 admission/list/removal. It is not a stable release or complete organization unit.
-The controls below distinguish this finite profile from later requirements.
+The opt-in membership-only team profile adds bounded creation, current-member
+admission/removal and team/member/mine reads. It confers no independent roles or
+permissions. Native commits fence actor and compatible target authority and
+advance both the organization epoch and the directly changed subject's scoped
+authorization epoch; reads repeat live session/member admission after policy.
+Bindings retain the organization-member version, so removal/re-admission cannot
+resurrect old teams. Zero team configuration advertises no team operations.
+The controls below distinguish these finite profiles from later requirements.
 
 ## Selected profile
 
@@ -76,7 +83,7 @@ not infer those capabilities from ambient process state.
 - **Severity:** critical if treated as deployable.
 - **Disposition:** release blocker; not accepted for production.
 - **Owner:** go-organization maintainers.
-- **Rationale:** invitations/capability delivery, teams, role editing, ownership
+- **Rationale:** full invitation lifecycle, dynamic team permissions, role editing, ownership
   transfer, domain proofs, archive/delete commands, active selection, cache
   closure, SSO/SCIM, MFA/passkeys and HTTP/browser transport are unselected.
 - **Mitigation:** keep the modules experimental; do not infer those controls

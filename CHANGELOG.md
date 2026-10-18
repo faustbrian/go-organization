@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an opt-in, bounded team-membership profile with owner/administrator
+  creation and membership changes, authenticated team/member/mine reads and
+  exact versions. Team bindings confer no independent permissions; removed
+  organization admissions cannot revive old team membership on re-entry.
+
 - Add bounded owner/administrator organization name and slug update preparation
   with exact organization versions, current action policy and explicit no-op
   conflict semantics; preserve memberships and all other fields.

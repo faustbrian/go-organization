@@ -1,7 +1,7 @@
 # go-organization
 
 > **Status: experimental.** Explicit-organization membership and the selected
-> existing-recipient invitation profile below are implemented. This is not a
+> existing-recipient invitation and opt-in team-membership profiles are implemented. This is not a
 > stable release or complete organization unit.
 
 `go-organization` supplies storage-neutral organization policy and a
@@ -60,7 +60,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Invitation resend/cancel/reject, recipient invitation listing, teams, custom
+Invitation resend/cancel/reject, recipient invitation listing, dynamic team permissions, custom
 roles, ownership transfer, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
@@ -167,6 +167,33 @@ See [contributing](CONTRIBUTING.md) for public tooling installation and scope.
 See the versioned [Golib ecosystem index](https://github.com/faustbrian/go-library-tools/blob/v1.4.0/docs/ecosystem/README.md)
 and [package-family guidance](https://github.com/faustbrian/go-library-tools/blob/v1.4.0/docs/ecosystem/design-language.md#package-families-and-selection)
 for the shared design language.
+
+## Optional team-membership profile
+
+Set the same explicit `TeamConfig{Version: 1, MaximumTeams: 100,
+MaximumMembers: 100}` on core and native contributor configuration, and install
+the adapter's forward `TeamMigrationSource` after existing organization
+migrations. Zero configuration disables the entire profile and registers no
+team mutations. Limits are bounded startup policy, not implied protocol defaults.
+`MaximumMembers` caps currently compatible active bindings, not lifetime retained
+removal tombstones; operators retain responsibility for storage/retention sizing.
+
+Owners and administrators call `PrepareCreateTeam`, `PrepareAddTeamMember` or
+`PrepareRemoveTeamMember`, then the adapter's ordinary `Execute`; preserve its
+prepared command/recovery binding for replay or ambiguous commits. Requests bind
+the exact organization policy, team, organization-member and team-membership
+versions. Use `ListTeams` for management, `ListMyTeams` for the authenticated
+subject, and `ListTeamMembers` for managers or current members of that team.
+Reads are bounded exclusive-ID pages and revalidate native current session,
+organization membership and scoped authority after action policy.
+
+Each team mutation advances the organization policy epoch. Membership changes
+also advance that subject's existing organization-scoped authorization epoch,
+without changing roles, granting permissions or global session authority.
+Organization removal immediately makes old team bindings unusable; re-admission
+requires an explicit team add against the new organization-member version and
+retained team tombstone version. Dynamic roles/permissions, team CRUD beyond
+create, active team, HTTP/reference registration and full M23 remain unselected.
 
 ## License
 
