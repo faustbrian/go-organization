@@ -160,7 +160,7 @@
           "build_tags": []
         }
       ],
-      "purpose": "Experimental native PostgreSQL organization persistence and identity Coordinator composition for the explicit-organization membership profile.",
+      "purpose": "Experimental native PostgreSQL membership execution, invitation storage/migrations and verified-recipient/delivery metadata reads; complete invitation execution remains unfinished.",
       "lifecycle": "experimental",
       "kind": "optional adapter",
       "releasable": true,
@@ -178,6 +178,8 @@
         "github.com/faustbrian/go-authorization/v3",
         "github.com/faustbrian/go-clock",
         "github.com/faustbrian/go-identity",
+        "github.com/faustbrian/go-identity/delivery",
+        "github.com/faustbrian/go-identity/delivery/postgres",
         "github.com/faustbrian/go-identity/postgres",
         "github.com/faustbrian/go-identity/risk",
         "github.com/faustbrian/go-identity/risk/postgres",
@@ -213,7 +215,7 @@
         "secondary_capabilities": [
           "identity-and-access"
         ],
-        "responsibility": "Native PostgreSQL explicit-organization membership participant and public service; the identity Coordinator remains the sole transaction and outcome owner.",
+        "responsibility": "Native PostgreSQL membership execution and invitation storage/read projections; the identity Coordinator remains the sole transaction and outcome owner.",
         "non_goals": [
           "Replace the identity Coordinator or own a second command journal.",
           "Claim invitations, teams, active selection, cache closure or complete platform qualification."

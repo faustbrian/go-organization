@@ -69,6 +69,7 @@ type orgFixture struct {
 	configuration  organizationpg.ServiceConfig
 	dsn            string
 	database       string
+	history        migrationList
 }
 
 func migrationBundle(t *testing.T, version migrations.Version, name string, files fs.FS, prefix string) migrations.Migration {
@@ -97,7 +98,7 @@ func migrationBundle(t *testing.T, version migrations.Version, name string, file
 	return m
 }
 
-func newOrgFixture(t *testing.T) *orgFixture {
+func newOrgFixture(t *testing.T, additions ...migrations.Source) *orgFixture {
 	t.Helper()
 	dsn := os.Getenv("GOLIB_ORGANIZATION_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -172,6 +173,9 @@ func newOrgFixture(t *testing.T) *orgFixture {
 	add(riskpg.LockoutMigrationSource{Base: riskpg.CounterMigrationSource{Base: riskpg.ReservationMigrationSource{Base: riskpg.IssuanceIDMigrationSource{Base: riskpg.MigrationSource{Schema: "organization_risk", Version: 40}, Version: 41}, Version: 42}, Version: 43}, Version: 44})
 	history = append(history, migrationBundle(t, 200, "organization_native_audit", auditpg.Migrations(), auditpg.FreshInstallPreflightSQL()), migrationBundle(t, 201, "organization_native_outbox", outboxpg.Migrations(), ""), migrationBundle(t, 202, "organization_native_lifecycle", lifecyclepg.Migrations(), ""))
 	add(organizationpg.MigrationSource{Version: 300})
+	for _, source := range additions {
+		add(source)
+	}
 	backend, e := migrationpg.New(db)
 	if e != nil {
 		t.Fatal(e)
@@ -198,6 +202,7 @@ func newOrgFixture(t *testing.T) *orgFixture {
 		}
 	})
 	f := &orgFixture{ctx: ctx, pool: pool, dsn: dsn, database: name, authentication: map[string]organization.Authentication{}, profile: sessionpg.IdentifierAdmissionConfig{GlobalAuthorityID: "organization-tests", PolicyNamespace: "users", Audience: "organization-test", AuthenticationMethod: "password", CredentialKind: identity.CredentialPassword, CredentialOwner: "identity/password"}}
+	f.history = append(migrationList(nil), history...)
 	f.key, e = session.NewDigestKey(1, bytes.Repeat([]byte{0x41}, 32))
 	if e != nil {
 		t.Fatal(e)

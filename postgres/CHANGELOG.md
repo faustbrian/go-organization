@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a forward-only invitation persistence migration for exact recipient,
+  organization, member-only grant, lifecycle and durable delivery-effect fences;
+  preserve the original installed membership migration unchanged.
+- Add owner-only invitation metadata reads through real current delivery status
+  authorization and verified recipient preparation through the identity owner.
+  These read/persistence prerequisites do not themselves issue or consume links.
 - Add experimental native PostgreSQL create/read and membership admission,
   listing/removal through existing identity Coordinator, counters, audit,
   lifecycle outbox and scoped authorization owners.

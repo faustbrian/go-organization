@@ -59,6 +59,33 @@ counts and last-owner invariants; no callback or external network work runs
 under it. Membership removal changes only that organization's subject authority,
 never global user/credential epochs. Tombstone reactivation never resets versions.
 
+## Invitation persistence and reads
+
+`InvitationMigrationSource` is a separate forward migration after the original
+membership source. It preserves the installed migration bytes and stores only
+safe recipient identifier/version, organization, member-only role, lifecycle,
+expiry and delivery-effect fences. Revoking/removing an email identifier is not
+blocked by an invitation foreign key; subsequent recipient admission fails.
+
+`NewInvitationRepository` borrows the existing organization repository and real
+initialized `delivery/postgres.EnqueueService`, with its exact retained policy
+revision. The root `InvitationService` performs genuine session and action-policy
+checks around this trusted port. Owner-only metadata additionally passes through
+the delivery owner's current status authorization; an invitation ID alone grants
+neither access nor evidence of a provider outcome.
+
+Recipient preparation uses identity's bounded complete identifier partition and
+`ResolveRecipient`, including current verified eligibility and independent
+security epochs. Neither identity nor delivery SQL is copied. Listing closes
+primary rows before delivery-owner calls; the1–100 bound also bounds per-item
+status reads. One outer budget withholds an incomplete page rather than returning
+partial metadata. This first profile makes no bulk-list throughput claim.
+
+These persistence/read prerequisites do not alone implement invitation send,
+capability consumption, membership creation or ambiguous-command recovery.
+Those require the closed shared coordinator profile and an actual invitation
+consumer proof; seeded read fixtures must not be presented as that journey.
+
 ## Verification and release
 
 The `integration` suite requires `GOLIB_ORGANIZATION_TEST_POSTGRES_DSN` identifying
