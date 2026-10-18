@@ -13,3 +13,4 @@ proof of full-unit completion.
 - [Selected team lifecycle](team-lifecycle.md) — `docs/team-lifecycle.md`
 - [Selected ownership transfer](owner-transfer.md) — `docs/owner-transfer.md`
 - [Selected member self-leave](member-leave.md) — `docs/member-leave.md`
+- [Selected current-subject listing](list-organizations.md) — `docs/list-organizations.md`

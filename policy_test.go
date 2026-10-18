@@ -29,6 +29,7 @@ type recordingPolicy struct {
 	last         authorization.DecisionContext
 	calls        int
 	beforeReturn func()
+	err          error
 }
 
 func (p *recordingPolicy) Decide(_ context.Context, c authorization.DecisionContext) (authorization.Decision, error) {
@@ -36,12 +37,20 @@ func (p *recordingPolicy) Decide(_ context.Context, c authorization.DecisionCont
 	if p.beforeReturn != nil {
 		p.beforeReturn()
 	}
+	if p.err != nil {
+		return authorization.Decision{}, p.err
+	}
 	return authorization.Decision{Outcome: p.outcome, Revision: p.revision}, nil
 }
 
 type policyOwner struct {
-	view          organization.View
-	reads, writes int
+	view             organization.View
+	reads, writes    int
+	organizations    []organization.OrganizationListEntry
+	listReads        int
+	listError        error
+	listQuery        organization.OrganizationListQuery
+	beforeListReturn func()
 }
 
 func (o *policyOwner) Read(context.Context, organization.Query) (organization.View, error) {

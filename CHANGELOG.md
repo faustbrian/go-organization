@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add authenticated current-subject organization listing with bounded visible
+  pages, stable scoped cursors, per-organization policy filtering and post-policy
+  authority/freshness revalidation. The repository list capability is additive.
+
 - Add explicit self-only organization leave with exact organization policy
   version, last-owner protection and current membership disclosure semantics.
   Leaving never revokes unrelated global password/session authority.

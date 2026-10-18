@@ -40,6 +40,10 @@ contracts are adapter boundaries, not application workflow instructions.
 - `Get` and `ListMembers` require current active membership on every call.
   Listing uses exclusive UserID keysets and limits 1–100 over current committed
   state, not a retained snapshot. Earlier concurrent additions require restart.
+- `ListOrganizations` lists only the authenticated human's active organizations
+  with 1–200 results, per-organization policy and stable visible-ID pagination.
+  Its additive repository capability leaves existing implementations compatible.
+  See [organization listing](docs/list-organizations.md) for filtering and bounds.
 - `Recover` authenticates the current actor against exact original scope. An ID
   alone grants no result access; recovery never re-executes a command.
 
