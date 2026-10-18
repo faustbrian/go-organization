@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add current-recipient invitation listing with bounded stable pages, explicit
+  lifecycle visibility, current verified-identifier binding and late-authority
+  revalidation, without organization membership or sensitive delivery material.
+
 - Add exact-version pending invitation cancellation for current owners and
   administrators, with terminal cancelled metadata and original-command custody.
   Recipient proof and current recipient credentials are not cancellation authority.

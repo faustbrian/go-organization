@@ -71,7 +71,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Invitation resend/reject, recipient invitation listing, dynamic team permissions, custom
+Invitation resend/reject, dynamic team permissions, custom
 roles, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
@@ -100,8 +100,8 @@ again by native execution, atomically with shared capability consumption.
 delivery owner's state/effect ID. They expose no transport address, proof or
 encrypted custody. Provider `Accepted` is not confirmed `Delivered`. Pending
 records project as expired at the exclusive deadline without a new mutation.
-Listing uses exclusive invitation-ID keysets with limits1–100. Recipient listing,
-prospective-user signup, grants above member and resend variants are
+Listing uses exclusive invitation-ID keysets with limits1–100.
+Prospective-user signup, grants above member and resend variants are
 not selected by this profile.
 
 Configuration explicitly selects a lifetime within15 minutes–30 days and a
@@ -138,6 +138,21 @@ global identity authority. Cancelled IDs remain terminal: a still
 cryptographically valid predecessor proof, including an already-prepared
 acceptance, cannot pass the shared pending/version fence. Retries preserve the
 original command; metadata recovery requires current management authority.
+
+`ListMine(InvitationListMineRequest)` is a distinct current-recipient read,
+without organization membership or administrator permission. It returns only
+safe `Invitation` values bound to the authenticated human and an exact current
+verified email identifier ID/version. Pending, accepted and cancelled records
+are visible; pending records project expired at their exclusive deadline. Old
+identifier versions, removed or unverified identifiers are not historical access
+grants. No delivery status, address, capability or ciphertext is returned.
+
+The optional `InvitationListMineReader` preserves existing repository callers.
+Pages use limits1–200 and a scope-bound opaque continuation, with tenant-unique
+invitation IDs in C byte order. This is a current keyset, not a snapshot: earlier
+inserts require restarting. No page escapes on late identity/session/policy or
+invitation withdrawal; original session freshness is never renewed. Retained
+invitation metadata itself grants neither membership nor acceptance authority.
 
 ## Lifecycle and ownership
 
