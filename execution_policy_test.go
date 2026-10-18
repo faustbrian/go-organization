@@ -16,7 +16,7 @@ import (
 // These are root policy/handoff tests. Native persistence and current authority
 // are covered by the PostgreSQL consumer; the callback is a consumer-owned seam.
 func TestExecutionRepeatsCurrentPolicyBeforeProtectedWork(t *testing.T) {
-	for _, op := range []organization.Operation{organization.Create, organization.RemoveMember, organization.InvitationSend, organization.InvitationAccept} {
+	for _, op := range []organization.Operation{organization.Create, organization.Update, organization.RemoveMember, organization.InvitationSend, organization.InvitationAccept} {
 		for _, variant := range []string{"denied", "wrong-revision", "expires-during-policy", "canceled-during-policy", "allowed"} {
 			t.Run(string(op)+"/"+variant, func(t *testing.T) {
 				s, a, at, owner, policy := policyFixture(t)
@@ -28,6 +28,10 @@ func TestExecutionRepeatsCurrentPolicyBeforeProtectedWork(t *testing.T) {
 				switch op {
 				case organization.Create:
 					command, err = s.PrepareCreate(t.Context(), organization.CreateRequest{Authentication: a, CommandID: id, ID: "new-org", Slug: "new", Name: "New", CorrelationID: "execute-policy"})
+				case organization.Update:
+					r := updateRequest(t, a)
+					r.CommandID, r.CorrelationID = id, "execute-policy"
+					command, err = s.PrepareUpdate(t.Context(), r)
 				case organization.RemoveMember:
 					r := memberRequest(t, a)
 					r.CommandID, r.CorrelationID = id, "execute-policy"

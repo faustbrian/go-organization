@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add bounded owner/administrator organization name and slug update preparation
+  with exact organization versions, current action policy and explicit no-op
+  conflict semantics; preserve memberships and all other fields.
+
 - Repeat current external organization action policy before prepared execution,
   preserving original session/invitation expiry and denying before protected
   work when policy changes, expires admission or cancels the operation.

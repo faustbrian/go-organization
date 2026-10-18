@@ -6,7 +6,8 @@
 
 `go-organization` supplies storage-neutral organization policy and a
 [native PostgreSQL adapter](postgres/README.md). The selected profile creates
-organizations, admits existing active users, lists members and removes members
+organizations, updates bounded names/slugs, admits existing active users,
+lists members and removes members
 while protecting the last owner.
 
 ## API and selection
@@ -18,6 +19,12 @@ contracts are adapter boundaries, not application workflow instructions.
 
 - `PrepareCreate` selects a preallocated canonical ID and tenant-unique lowercase
   ASCII slug. The creator becomes an owner atomically.
+- `PrepareUpdate` replaces only `Name` (1–256 UTF-8 bytes, no ASCII control
+  characters or surrounding whitespace) and `Slug` (1–63 lowercase ASCII letters/digits/
+  hyphens, no leading/trailing hyphen), preserving exact spelling. It requires
+  a current owner or administrator and the expected organization version.
+  Identical values return `ErrConflict` without a transition. Slug collisions
+  conflict within the same tenant, including reserved lifecycle states.
 - `PrepareAddMember` requires an existing active target user, static role and
   expected organization/member versions. Administrators cannot add owners.
 - `PrepareRemoveMember` requires exact versions and retains a tombstone. Only
@@ -32,6 +39,17 @@ contracts are adapter boundaries, not application workflow instructions.
 Membership removal advances scoped organization authorization, not unrelated
 global user or credential authority. Re-admission advances the retained
 membership and scoped authority rather than resetting them.
+Metadata updates advance only the existing organization/policy epoch; they do
+not change memberships, scoped subject authority or global identity authority.
+Read the updated organization through authenticated `Get` after the receipt.
+
+The selected update profile maps the planning operation
+`identity.organization.update` onto the existing `Authentication`, stable
+`CommandID`, `OrganizationVersion`, and `PrepareUpdate`/`Execute`/`Get` model.
+It retains the committed canonical-ID policy and create-name 256-byte bound,
+not older generated catalog assumptions of 22-character IDs and 128-byte names.
+Optional typed additional fields and the one-call/HTTP `UpdateResult` surface
+are unselected; they are never silently cleared or emulated.
 
 ## Non-goals
 

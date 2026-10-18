@@ -56,7 +56,7 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
-	if o != Create && o != AddMember && o != RemoveMember {
+	if o != Create && o != Update && o != AddMember && o != RemoveMember {
 		return invitationDescriptor(o)
 	}
 	return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-membership", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
@@ -91,6 +91,7 @@ type Operation string
 
 const (
 	Create       Operation = "identity.organization.create"
+	Update       Operation = "identity.organization.update"
 	AddMember    Operation = "identity.organization.member.add"
 	RemoveMember Operation = "identity.organization.member.remove"
 	Get          Operation = "identity.organization.get"
@@ -204,6 +205,20 @@ type CreateRequest struct {
 	Slug, Name, CorrelationID string
 }
 
+// UpdateRequest replaces only Name and Slug using CreateRequest's bounds and
+// case-sensitive semantics; it neither clears nor accepts other metadata.
+// OrganizationVersion is the exact current organization/policy epoch. Owners
+// and administrators may update; identical metadata returns ErrConflict without
+// a transition, new epoch, audit or lifecycle event. Preserve CommandID across
+// retries and reconcile ambiguous outcomes using the native adapter's recovery.
+type UpdateRequest struct {
+	Authentication            Authentication
+	CommandID                 identity.CommandID
+	OrganizationID            ID
+	OrganizationVersion       uint64
+	Name, Slug, CorrelationID string
+}
+
 // MemberRequest binds an exact target and organization/member optimistic versions.
 // Add requires Role and preserves an existing removed membership's version (zero
 // only for a never-admitted user). Remove requires the active member's version;
@@ -302,6 +317,53 @@ func (s *Service) PrepareCreate(ctx context.Context, r CreateRequest) (out Comma
 
 func (s *Service) PrepareAddMember(ctx context.Context, r MemberRequest) (Command, error) {
 	return s.prepareMember(ctx, r, AddMember)
+}
+
+// PrepareUpdate authenticates the human actor and checks current organization
+// membership and action policy. Preparation writes nothing; the native adapter
+// must recheck current authority and the expected version under its own locks.
+func (s *Service) PrepareUpdate(ctx context.Context, r UpdateRequest) (out Command, err error) {
+	defer func() {
+		if recover() != nil {
+			out, err = Command{}, ErrUnavailable
+		}
+	}()
+	if s == nil || ctx == nil || !safeID(string(r.OrganizationID)) || !safeID(r.CorrelationID) || !boundedText(r.Name, 256) || !validSlug(r.Slug) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) {
+		return out, ErrInvalidInput
+	}
+	if _, err = identity.ParseCommandID(string(r.CommandID)); err != nil {
+		return out, ErrInvalidInput
+	}
+	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
+	defer cancel()
+	if err = s.config.ValidateCanonicalID(bounded, r.OrganizationID); err != nil {
+		return out, ErrInvalidInput
+	}
+	observed, actor, err := s.authenticate(bounded, r.Authentication)
+	if err != nil {
+		return out, err
+	}
+	v, err := s.repository.Read(bounded, Query{Operation: Update, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID})
+	if err != nil {
+		return out, publicError(bounded, err)
+	}
+	if !validView(v, r.Authentication.TenantID, r.OrganizationID, actor) || v.Actor.Role != RoleOwner && v.Actor.Role != RoleAdministrator {
+		return out, ErrForbidden
+	}
+	if err = s.authorize(bounded, actor, r.Authentication.TenantID, r.OrganizationID, v.Organization.Version, Update, r.CorrelationID); err != nil {
+		return out, err
+	}
+	if err = bounded.Err(); err != nil {
+		return out, err
+	}
+	if observed.ValidateAt(s.config.Clock.Now()) != nil {
+		return out, ErrForbidden
+	}
+	if v.Organization.Version != r.OrganizationVersion || v.Organization.Name == r.Name && v.Organization.Slug == r.Slug {
+		return out, ErrConflict
+	}
+	v.Organization.Name, v.Organization.Slug = strings.Clone(r.Name), strings.Clone(r.Slug)
+	return s.command(r.CommandID, Update, r.CorrelationID, observed, r.Authentication.Bearer, v.Organization, v.Actor, Member{}, identity.User{ID: actor, TenantID: r.Authentication.TenantID}, ""), nil
 }
 func (s *Service) PrepareRemoveMember(ctx context.Context, r MemberRequest) (Command, error) {
 	return s.prepareMember(ctx, r, RemoveMember)
