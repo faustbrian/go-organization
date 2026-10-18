@@ -7,6 +7,7 @@ import (
 
 	authority "github.com/faustbrian/go-authorization/v3/postgres"
 	identity "github.com/faustbrian/go-identity"
+	passwordpg "github.com/faustbrian/go-identity/password/postgres"
 	kernel "github.com/faustbrian/go-identity/postgres"
 	organization "github.com/faustbrian/go-organization"
 )
@@ -42,8 +43,20 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 	if e != nil {
 		return identity.FeatureReceipt{}, e
 	}
+	var primary passwordpg.ActionPrimaryAdmission
+	if c.operation == organization.OwnerTransfer {
+		primary, e = p.restoreTransfer(ctx, c, command)
+		if e != nil {
+			return identity.FeatureReceipt{}, e
+		}
+	}
 	if e = p.admit(ctx, w, c, command, false); e != nil {
 		return identity.FeatureReceipt{}, e
+	}
+	if c.operation == organization.OwnerTransfer {
+		if e = primary.Consume(ctx, w, p, command); e != nil {
+			return identity.FeatureReceipt{}, e
+		}
 	}
 	b := c.spec.Binding
 	// One tenant row serializes cardinality changes as well as organization
@@ -62,6 +75,8 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 		e = p.create(ctx, w, c)
 	} else if c.operation == organization.Update {
 		e = p.update(ctx, w, c)
+	} else if c.operation == organization.OwnerTransfer {
+		e = p.transferOwner(ctx, w, c)
 	} else if isTeamMutation(c.operation) {
 		e = p.mutateTeam(ctx, w, c)
 	} else {
@@ -329,6 +344,30 @@ func readMember(ctx context.Context, w kernel.Work, tenant identity.TenantID, or
 // committed evidence beside a pending journal is left for the sole coordinator
 // to classify as conflicting/unknown, never reconstructed as a fresh success.
 func (p *Contributor) RecoverParticipant(ctx context.Context, w kernel.RecoveryWork) (kernel.RecoveryStatus, error) {
+	status, err := p.recoverEffect(ctx, w)
+	if err != nil {
+		return kernel.RecoveryUnknown, err
+	}
+	b, _, _, err := w.FeatureScope(p)
+	if err != nil {
+		return kernel.RecoveryUnknown, err
+	}
+	if organization.Operation(b.OperationID) == organization.OwnerTransfer {
+		if p.config.OwnerTransferPrimary == nil {
+			return kernel.RecoveryUnknown, identity.ForbiddenError{}
+		}
+		proofStatus, err := p.config.OwnerTransferPrimary.Recover(ctx, w, p)
+		if err != nil {
+			return kernel.RecoveryUnknown, err
+		}
+		if proofStatus != status {
+			return kernel.RecoveryUnknown, nil
+		}
+	}
+	return status, nil
+}
+
+func (p *Contributor) recoverEffect(ctx context.Context, w kernel.RecoveryWork) (kernel.RecoveryStatus, error) {
 	b, feature, life, e := w.FeatureScope(p)
 	if e != nil {
 		return kernel.RecoveryUnknown, e

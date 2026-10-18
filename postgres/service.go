@@ -48,6 +48,12 @@ func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
 	if p == nil || p.repository == nil || c.Sessions == nil || c.Authorization == nil || c.Risk == nil || c.Coordinator == nil || c.Registry == nil || c.Core.PolicyID != p.config.PolicyID || c.Core.PolicyVersion != p.config.PolicyVersion || c.Core.MaximumMembers != p.config.MaximumMembers || c.Core.MaximumPerUser != p.config.MaximumPerUser || c.Core.MaximumPerTenant != p.config.MaximumPerTenant || c.Core.Teams != p.config.Teams {
 		return nil, organization.ErrInvalidInput
 	}
+	if (c.Core.OwnerTransferAudience == "") != (p.config.OwnerTransferPrimary == nil) {
+		return nil, organization.ErrInvalidInput
+	}
+	if p.config.OwnerTransferPrimary != nil && !p.config.OwnerTransferPrimary.Matches(string(organization.OwnerTransfer), c.Core.OwnerTransferAudience) {
+		return nil, organization.ErrInvalidInput
+	}
 	core, e := organization.NewService(c.Sessions, p.repository, c.Authorization, c.Core)
 	if e != nil {
 		return nil, e
@@ -162,6 +168,10 @@ func (s *Service) PrepareRemoveMember(ctx context.Context, r organization.Member
 }
 
 func (s *Service) prepare(ctx context.Context, c organization.Command, network string) (PreparedCommand, error) {
+	return s.prepareMapped(ctx, c, identity.Command{}, network)
+}
+
+func (s *Service) prepareMapped(ctx context.Context, c organization.Command, native identity.Command, network string) (PreparedCommand, error) {
 	if ctx == nil {
 		return PreparedCommand{}, organization.ErrInvalidInput
 	}
@@ -174,9 +184,11 @@ func (s *Service) prepare(ctx context.Context, c organization.Command, network s
 	if x.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return PreparedCommand{}, organization.ErrForbidden
 	}
-	native, e := s.participant.MapCommand(c)
-	if e != nil {
-		return PreparedCommand{}, e
+	if _, mapped := native.Feature(); !mapped {
+		native, e = s.participant.MapCommand(c)
+		if e != nil {
+			return PreparedCommand{}, e
+		}
 	}
 	var at time.Time
 	if e = s.participant.repository.pool.Raw().QueryRow(bounded, `SELECT clock_timestamp()`).Scan(&at); e != nil {
@@ -255,6 +267,9 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	}
 	b := r.Binding
 	op := organization.Operation(b.OperationID)
+	if op == organization.OwnerTransfer && (s.config.Core.OwnerTransferAudience == "" || s.participant.config.OwnerTransferPrimary == nil) {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
 	if isTeamMutation(op) && s.config.Core.Teams.MaximumTeams == 0 {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
@@ -297,7 +312,7 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 			return organization.StoreResult{}, readErr
 		}
 		admission = view
-		if op == organization.Update || isTeamMutation(op) {
+		if op == organization.Update || op == organization.OwnerTransfer || isTeamMutation(op) {
 			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
 				return organization.StoreResult{}, e
 			}
@@ -308,16 +323,17 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	return u.Recover(bounded, b.CommandID)
 }
 
-// Historical command disclosure is not an org:update grant. Recheck the same
-// current management role and organization policy used by preparation, before
-// the kernel separately enforces its exact identity.user disclosure policy.
+// Historical disclosure is not a mutation grant. A successful owner transfer
+// demotes its original actor to member, so its exact metadata-only recovery
+// requires current membership and action policy, not renewed owner authority.
+// Other management outcomes retain their current owner/administrator requirement.
 func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.CommandBinding, view organization.View) (err error) {
 	defer func() {
 		if recover() != nil {
 			err = organization.ErrUnavailable
 		}
 	}()
-	if view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
+	if organization.Operation(b.OperationID) != organization.OwnerTransfer && view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
 		return organization.ErrForbidden
 	}
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(b.RecordID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(view.Organization.Version, 10))}}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}

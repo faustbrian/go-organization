@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add ownership transfer through the existing coordinator, conserving the
+  owner count and atomically advancing both memberships, scoped authorities,
+  organization policy epoch and protected audit/lifecycle effects. Exact
+  metadata-only recovery remains available to the current former-owner member.
+
+- Require independently known-empty current actor and target MFA generations
+  for the selected single-factor ownership transfer, fenced through final
+  commit even when first factor activation leaves an existing SFA session valid.
+
 - Add optional native team get/update/delete through the existing coordinator.
   Install TeamLifecycleMigrationSource before LifecycleVersion 1 activation;
   live-row deletion denies former bindings without per-member fan-out, preserves

@@ -48,6 +48,20 @@ outcome and may return a nil error.
 
 ## Persistence and concurrency
 
+The selected [ownership-transfer profile](../docs/owner-transfer.md) uses
+`PrepareOwnerTransfer` and the same `Execute`/`Recovery` boundary. Install the
+password owner's selected action-proof migration and supply its native primary
+source before enabling this operation. It requires an exact signed original
+password proof for `identity.organization.owner-transfer`, at most 15 minutes
+old, and fences the actual current session/credential and both memberships.
+Both actor and target must have known-empty current MFA authority; bind their
+exact MFA generations and fence them again before mutation and final commit.
+An enrolled/unknown or changed factor generation denies despite a valid SFA
+session. Use the MFA owner's actual authority migrations and initialized rows.
+The source becomes `member`; the target becomes `owner`. Membership and scoped
+authorization versions both advance, while member/owner counts are conserved.
+There is no new organization migration or independent transaction owner.
+
 `PrepareUpdate(ctx, organization.UpdateRequest, trustedCanonicalClientIP)`
 uses the same `Execute`/`Recovery` path for bounded `Name`/`Slug` replacement.
 It admits only current owners/administrators and fences the exact expected

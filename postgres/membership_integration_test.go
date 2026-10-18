@@ -20,6 +20,7 @@ import (
 	authority "github.com/faustbrian/go-authorization/v3/postgres"
 	"github.com/faustbrian/go-clock"
 	identity "github.com/faustbrian/go-identity"
+	passwordpg "github.com/faustbrian/go-identity/password/postgres"
 	kernel "github.com/faustbrian/go-identity/postgres"
 	"github.com/faustbrian/go-identity/risk"
 	riskpg "github.com/faustbrian/go-identity/risk/postgres"
@@ -51,26 +52,27 @@ func (fixturePolicy) Decide(ctx context.Context, c authorization.DecisionContext
 	if err := ctx.Err(); err != nil {
 		return authorization.Decision{}, err
 	}
-	if c.PolicyRevision != 1 || c.Request.Subject.Kind != authorization.SubjectUser || !strings.HasPrefix(string(c.Request.Tenant), "org-test-") {
+	if c.PolicyRevision != 1 || c.Request.Subject.Kind != authorization.SubjectUser || !strings.HasPrefix(string(c.Request.Tenant), "org-test-") && !isTransferFixtureTenant(string(c.Request.Tenant)) {
 		return authorization.Decision{Outcome: authorization.Deny, Revision: 1}, nil
 	}
 	return authorization.Decision{Outcome: authorization.Allow, Revision: 1}, nil
 }
 
 type orgFixture struct {
-	ctx            context.Context
-	pool           *database.Pool
-	service        *organizationpg.Service
-	sessions       *session.SessionService
-	key            session.DigestKey
-	authentication map[string]organization.Authentication
-	profile        sessionpg.IdentifierAdmissionConfig
-	participant    *organizationpg.Contributor
-	configuration  organizationpg.ServiceConfig
-	dsn            string
-	database       string
-	history        migrationList
-	teams          organization.TeamConfig
+	ctx                  context.Context
+	pool                 *database.Pool
+	service              *organizationpg.Service
+	sessions             *session.SessionService
+	key                  session.DigestKey
+	authentication       map[string]organization.Authentication
+	profile              sessionpg.IdentifierAdmissionConfig
+	participant          *organizationpg.Contributor
+	configuration        organizationpg.ServiceConfig
+	dsn                  string
+	database             string
+	history              migrationList
+	teams                organization.TeamConfig
+	ownerTransferPrimary *passwordpg.ActionPrimarySource
 }
 
 func migrationBundle(t *testing.T, version migrations.Version, name string, files fs.FS, prefix string) migrations.Migration {
@@ -100,6 +102,10 @@ func migrationBundle(t *testing.T, version migrations.Version, name string, file
 }
 
 func newOrgFixture(t *testing.T, additions ...migrations.Source) *orgFixture {
+	return newOrgFixtureWithIdentities(t, nil, nil, additions...)
+}
+
+func newOrgFixtureWithIdentities(t *testing.T, tenants []identity.TenantID, users []identity.UserID, additions ...migrations.Source) *orgFixture {
 	t.Helper()
 	dsn := os.Getenv("GOLIB_ORGANIZATION_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -147,7 +153,12 @@ func newOrgFixture(t *testing.T, additions ...migrations.Source) *orgFixture {
 	config.Database = name
 	db := stdlib.OpenDB(*config)
 	t.Cleanup(func() { _ = db.Close() })
-	tenants := []identity.TenantID{"org-test-basic", "org-test-rollback", "org-test-target", "org-test-race", "org-test-scope", "org-test-unknown"}
+	if tenants == nil {
+		tenants = []identity.TenantID{"org-test-basic", "org-test-rollback", "org-test-target", "org-test-race", "org-test-scope", "org-test-unknown"}
+	}
+	if users == nil {
+		users = []identity.UserID{"owner", "second", "member", "outsider"}
+	}
 	base := kernel.StatusMigrationSource{Base: kernel.CredentialMigrationSource{Base: kernel.DirectoryAuthorityMigrationSource{Base: kernel.MigrationSource{}, Version: 10, GlobalAuthorityID: "organization-tests", TenantIDs: tenants}, Version: 11}, Version: 12}
 	history, e := base.Load(ctx)
 	if e != nil {
@@ -209,7 +220,7 @@ func newOrgFixture(t *testing.T, additions ...migrations.Source) *orgFixture {
 		t.Fatal(e)
 	}
 	for _, tenant := range tenants {
-		for _, user := range []identity.UserID{"owner", "second", "member", "outsider"} {
+		for _, user := range users {
 			f.seedUser(t, tenant, user)
 		}
 	}
@@ -232,7 +243,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams})
+	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, OwnerTransferPrimary: f.ownerTransferPrimary})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -264,6 +275,9 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 		return nil
 	}}, Sessions: f.sessions, Authorization: fixturePolicy{}, Risk: counters, Coordinator: coordinator, Registry: registry}
 	f.configuration.Core.Teams = f.teams
+	if f.ownerTransferPrimary != nil {
+		f.configuration.Core.OwnerTransferAudience = transferAudience
+	}
 	f.service, e = organizationpg.NewService(f.participant, f.configuration)
 	if e != nil {
 		t.Fatal(e)

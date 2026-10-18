@@ -24,6 +24,7 @@ type recoveryWithdrawalPolicy struct {
 	fixture           *orgFixture
 	operation         organization.Operation
 	stage, withdrawal string
+	tenant, user      string
 	armed, fired      bool
 }
 
@@ -33,6 +34,9 @@ func (p *recoveryWithdrawalPolicy) Decide(ctx context.Context, c authorization.D
 		p.armed = false
 		p.fired = true
 		tenant, user := "org-test-basic", "second"
+		if p.tenant != "" {
+			tenant, user = p.tenant, p.user
+		}
 		var err error
 		switch p.withdrawal {
 		case "session":
