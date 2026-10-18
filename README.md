@@ -29,6 +29,10 @@ contracts are adapter boundaries, not application workflow instructions.
   expected organization/member versions. Administrators cannot add owners.
 - `PrepareRemoveMember` requires exact versions and retains a tombstone. Only
   owners remove owners; the final owner cannot be removed.
+- `PrepareOwnerTransfer` selects an existing active nonowner member and exact
+  organization/source/target versions. A current owner and operation-bound
+  primary proof are required; the former owner becomes an ordinary member.
+  See [ownership transfer](docs/owner-transfer.md) for authority and recovery.
 - `Execute` accepts the same immutable prepared command for bounded retries.
 - `Get` and `ListMembers` require current active membership on every call.
   Listing uses exclusive UserID keysets and limits 1–100 over current committed
@@ -61,7 +65,7 @@ The root boundary does not own:
 - database clients, migrations, transactions, caches, or background workers.
 
 Invitation resend/cancel/reject, recipient invitation listing, dynamic team permissions, custom
-roles, ownership transfer, domain claims,
+roles, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.

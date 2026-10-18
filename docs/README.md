@@ -11,3 +11,4 @@ proof of full-unit completion.
 - [Goal: planned go-organization boundary](goal.md) — `docs/goal.md`
 - [Planned security model](security.md) — `docs/security.md`
 - [Selected team lifecycle](team-lifecycle.md) — `docs/team-lifecycle.md`
+- [Selected ownership transfer](owner-transfer.md) — `docs/owner-transfer.md`

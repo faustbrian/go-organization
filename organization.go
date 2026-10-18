@@ -59,7 +59,7 @@ func (o Operation) Descriptor() identity.FeatureOperation {
 	if teamMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-team", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
-	if o != Create && o != Update && o != AddMember && o != RemoveMember {
+	if o != Create && o != Update && o != AddMember && o != RemoveMember && o != OwnerTransfer {
 		return invitationDescriptor(o)
 	}
 	return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-membership", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
@@ -186,6 +186,9 @@ type Config struct {
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	ValidateCanonicalID                              func(context.Context, ID) error
 	Teams                                            TeamConfig
+	// OwnerTransferAudience explicitly selects the signed primary-proof audience.
+	// Empty disables ownership transfer; it is independent of session audience.
+	OwnerTransferAudience string
 }
 
 // Service owns bounded authentication and pure policy/preparation, not durable
@@ -199,10 +202,11 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
+	c.OwnerTransferAudience = strings.Clone(c.OwnerTransferAudience)
 	return &Service{sessions: sessions, repository: repository, policy: policy, config: c}, nil
 }
 
@@ -272,6 +276,7 @@ type CommandInput struct {
 	Team                                             Team
 	TeamMember                                       TeamMember
 	Teams                                            TeamConfig
+	OwnerTransferProof                               authentication.ReauthenticationProof
 }
 
 type commandState struct {
@@ -480,6 +485,9 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 		return out, err
 	}
 	x := c.state.input
+	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, s.config.Clock.Now()) {
+		return out, ErrForbidden
+	}
 	if err := s.authorize(bounded, identity.UserID(x.Binding.ActorID), x.Binding.TenantID, x.Organization.ID, x.Organization.Version, x.Operation, x.Binding.CorrelationID); err != nil {
 		return out, err
 	}
@@ -490,6 +498,9 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 		return out, err
 	}
 	if x.Session.ValidateAt(now) != nil || x.Operation == InvitationAccept && !now.Before(x.Invitation.Record.ExpiresAt) {
+		return out, ErrForbidden
+	}
+	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, now) {
 		return out, ErrForbidden
 	}
 	attempted = true

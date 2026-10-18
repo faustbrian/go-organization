@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an atomic owner-transfer profile for an existing active member, with
+  exact organization and both membership versions. The former owner becomes
+  an ordinary member; both scoped authority epochs advance without changing
+  unrelated global credentials or increasing the owner count.
+
 - Add opt-in exact team reads, versioned bounded name replacement and terminal
   deletion. Retired team IDs cannot be reused; existing membership-only
   configuration and command framing remain unchanged until lifecycle selection.
