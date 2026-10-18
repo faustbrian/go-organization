@@ -14,10 +14,13 @@ import (
 )
 
 func isTeamMutation(op organization.Operation) bool {
-	return op == organization.CreateTeam || op == organization.AddTeamMember || op == organization.RemoveTeamMember
+	return op == organization.CreateTeam || op == organization.AddTeamMember || op == organization.RemoveTeamMember || isTeamLifecycle(op)
+}
+func isTeamLifecycle(op organization.Operation) bool {
+	return op == organization.UpdateTeam || op == organization.DeleteTeam
 }
 func isTeamOperation(op organization.Operation) bool {
-	return isTeamMutation(op) || op == organization.ListTeams || op == organization.ListMyTeams || op == organization.ListTeamMembers
+	return isTeamMutation(op) || op == organization.GetTeam || op == organization.ListTeams || op == organization.ListMyTeams || op == organization.ListTeamMembers
 }
 func boundedTeamName(name string) bool {
 	if len(name) < 1 || len(name) > 256 || !utf8.ValidString(name) || strings.TrimSpace(name) != name {
@@ -104,10 +107,10 @@ func (r *Repository) readTeams(ctx context.Context, q organization.Query, v orga
 			return bad()
 		}
 	}
-	if q.Operation == organization.ListTeams && v.Actor.Role != organization.RoleOwner && v.Actor.Role != organization.RoleAdministrator {
+	if (q.Operation == organization.ListTeams || q.Operation == organization.GetTeam || isTeamLifecycle(q.Operation)) && v.Actor.Role != organization.RoleOwner && v.Actor.Role != organization.RoleAdministrator {
 		return organization.View{}, organization.ErrForbidden
 	}
-	if q.Operation == organization.CreateTeam || q.Operation == organization.AddTeamMember || q.Operation == organization.RemoveTeamMember || q.Operation == organization.ListTeamMembers {
+	if q.Operation == organization.CreateTeam || q.Operation == organization.AddTeamMember || q.Operation == organization.RemoveTeamMember || q.Operation == organization.ListTeamMembers || q.Operation == organization.GetTeam || isTeamLifecycle(q.Operation) {
 		if !scope(string(q.TeamID)) {
 			return bad()
 		}
@@ -124,7 +127,7 @@ func (r *Repository) readTeams(ctx context.Context, q organization.Query, v orga
 			return organization.View{}, e
 		}
 	}
-	if q.Operation == organization.CreateTeam {
+	if q.Operation == organization.CreateTeam || q.Operation == organization.GetTeam || isTeamLifecycle(q.Operation) {
 		return v, nil
 	}
 	if q.Operation == organization.AddTeamMember || q.Operation == organization.RemoveTeamMember {
@@ -257,10 +260,21 @@ func (p *Contributor) mutateTeam(ctx context.Context, w kernel.Work, c nativeCom
 	if e = authority.RequireAuthority(ctx, w, actorScope, actor.AuthorizationVersion, p.config.Session.MaximumDuration); e != nil {
 		return authorityError(e)
 	}
-	if c.operation == organization.CreateTeam {
+	if isTeamLifecycle(c.operation) {
+		if e = p.changeTeam(ctx, w, c); e != nil {
+			return e
+		}
+	} else if c.operation == organization.CreateTeam {
 		var count int64
 		var duplicate bool
-		rows, e = w.Query(ctx, `SELECT count(*),coalesce(bool_or(team_id=$3),false) FROM organization.teams WHERE tenant_id=$1 AND organization_id=$2`, string(b.TenantID), string(c.org.ID), string(c.team.ID))
+		countSQL := `SELECT count(*),coalesce(bool_or(team_id=$3),false) FROM organization.teams WHERE tenant_id=$1 AND organization_id=$2`
+		if p.config.Teams.LifecycleVersion == 1 {
+			// Terminal ID reuse prevention retains identities indefinitely. The
+			// opt-in lifecycle profile budgets those retained IDs (documented in
+			// docs/team-lifecycle.md), not an unbounded series of deleted slots.
+			countSQL = `SELECT count(*),coalesce(bool_or(team_id=$3),false) FROM organization.team_identities WHERE tenant_id=$1 AND organization_id=$2`
+		}
+		rows, e = w.Query(ctx, countSQL, string(b.TenantID), string(c.org.ID), string(c.team.ID))
 		if e = one(rows, e, &count, &duplicate); e != nil {
 			return e
 		}

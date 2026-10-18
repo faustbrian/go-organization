@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add optional native team get/update/delete through the existing coordinator.
+  Install TeamLifecycleMigrationSource before LifecycleVersion 1 activation;
+  live-row deletion denies former bindings without per-member fan-out, preserves
+  terminal identity/recovery and rejects old-writer ID resurrection.
+
 - Revalidate actual session, organization/member role and policy/scoped authority
   after recovery-policy callbacks before disclosing retained outcomes, including
   the shared organization metadata-update recovery path.

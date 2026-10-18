@@ -175,8 +175,11 @@ uses the new organization-member version and retained team-binding version.
 The genuine password consumer continues through team create, compatible member
 add, all three read surfaces and removal denial. Focused native tests additionally
 cover quotas, duplicate contention, scope, authority withdrawal, rollback,
-lost acknowledgement recovery and a populated forward migration. Team update/
-delete/active selection, dynamic roles and HTTP composition remain later profiles.
+lost acknowledgement recovery and a populated forward migration. The optional
+[team lifecycle profile](../docs/team-lifecycle.md) adds exact get, bounded name
+update and terminal deletion after `TeamLifecycleMigrationSource` and explicit
+`Teams.LifecycleVersion: 1`. Active selection, dynamic roles and HTTP composition
+remain later profiles.
 
 Recovery re-reads the submitted native session and the original current
 organization/member role, policy and scoped-authority epochs after external

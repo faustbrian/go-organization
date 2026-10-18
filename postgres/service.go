@@ -258,6 +258,9 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	if isTeamMutation(op) && s.config.Core.Teams.MaximumTeams == 0 {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
+	if isTeamLifecycle(op) && s.config.Core.Teams.LifecycleVersion != 1 {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
 	if b.ValidateFor(op.Descriptor()) != nil || b.ActorKind != authorization.SubjectUser || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.TenantID != a.TenantID {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}

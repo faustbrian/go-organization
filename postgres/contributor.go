@@ -69,6 +69,9 @@ func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
 	if p != nil && p.config.Teams.MaximumTeams > 0 {
 		ops = append(ops, organization.CreateTeam.Descriptor(), organization.AddTeamMember.Descriptor(), organization.RemoveTeamMember.Descriptor())
+		if p.config.Teams.LifecycleVersion == 1 {
+			ops = append(ops, organization.UpdateTeam.Descriptor(), organization.DeleteTeam.Descriptor())
+		}
 	}
 	return ops
 }
@@ -120,6 +123,12 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 			return identity.Command{}, organization.ErrInvalidInput
 		}
 		f = append(f, text("team-id", string(x.Team.ID)), text("team-name", x.Team.Name), number("team-version", x.Team.Version), number("team-member-version", x.TeamMember.Version), number("team-member-organization-version", x.TeamMember.OrganizationMemberVersion), number("team-policy-version", x.Teams.Version), number("maximum-teams", x.Teams.MaximumTeams), number("maximum-team-members", x.Teams.MaximumMembers))
+		if isTeamLifecycle(x.Operation) {
+			if x.Teams.LifecycleVersion != 1 {
+				return identity.Command{}, organization.ErrInvalidInput
+			}
+			f = append(f, number("team-lifecycle-version", x.Teams.LifecycleVersion))
+		}
 	}
 	return identity.NewFeatureSessionCommand(identity.FeatureCommandSpec{Binding: x.Binding, Operation: x.Operation.Descriptor(), Fields: f}, x.Bearer)
 }
@@ -154,6 +163,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	want := 16
 	if isTeamMutation(op) {
 		want += 8
+		if isTeamLifecycle(op) {
+			want++
+		}
 	}
 	if len(values) != want {
 		return bad()
@@ -163,6 +175,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	if isTeamMutation(op) {
 		textNames = append(textNames, "team-id", "team-name")
 		numberNames = append(numberNames, "team-version", "team-member-version", "team-member-organization-version", "team-policy-version", "maximum-teams", "maximum-team-members")
+		if isTeamLifecycle(op) {
+			numberNames = append(numberNames, "team-lifecycle-version")
+		}
 	}
 	for _, key := range textNames {
 		if values["organization."+key].Kind != identity.FeatureText {
@@ -194,7 +209,11 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		}
 		c.team = organization.Team{ID: organization.ID(t("team-id")), OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, Name: t("team-name"), Version: n("team-version")}
 		c.teamMember = organization.TeamMember{TeamID: c.team.ID, OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Version: n("team-member-version"), OrganizationMemberVersion: n("team-member-organization-version")}
-		if op == organization.CreateTeam {
+		if isTeamLifecycle(op) {
+			if p.config.Teams.LifecycleVersion != 1 || n("team-lifecycle-version") != 1 || c.team.Version == 0 || c.team.Version == ^uint64(0) || c.teamMember.Version != 0 || c.teamMember.OrganizationMemberVersion != 0 || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.user.Version != 0 || c.user.Status != "" || string(s.Binding.UserID) != string(s.Binding.ActorID) {
+				return bad()
+			}
+		} else if op == organization.CreateTeam {
 			if c.team.Version != 0 || c.teamMember.Version != 0 || c.teamMember.OrganizationMemberVersion != 0 || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.user.Version != 0 || c.user.Status != "" || string(s.Binding.UserID) != string(s.Binding.ActorID) {
 				return bad()
 			}
@@ -251,6 +270,10 @@ func events(op organization.Operation) (string, string) {
 		return "team.membership_changed.v1", "identity.organization.add_team_member"
 	case organization.RemoveTeamMember:
 		return "team.membership_changed.v1", "identity.organization.remove_team_member"
+	case organization.UpdateTeam:
+		return "team.updated.v1", "identity.organization.update_team"
+	case organization.DeleteTeam:
+		return "team.deleted.v1", "identity.organization.delete_team"
 	}
 	return "", ""
 }

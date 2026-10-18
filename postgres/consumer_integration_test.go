@@ -408,7 +408,7 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 	if e != nil {
 		t.Fatal(e)
 	}
-	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100}
+	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100, LifecycleVersion: 1}
 	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams})
 	if e != nil {
 		t.Fatal(e)

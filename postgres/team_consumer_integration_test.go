@@ -20,7 +20,7 @@ import (
 func exerciseGenuineTeams(t *testing.T, ctx context.Context, db *sql.DB, s *organizationpg.Service, owner, member, recoveryOwner organization.Authentication, memberID identity.UserID) {
 	t.Helper()
 	var steps migrationList
-	for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}} {
+	for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}} {
 		more, e := source.Load(ctx)
 		if e != nil {
 			t.Fatal(e)
@@ -107,5 +107,41 @@ func exerciseGenuineTeams(t *testing.T, ctx context.Context, db *sql.DB, s *orga
 	q.TeamID = team
 	if _, e = s.ListTeamMembers(ctx, q); !errors.Is(e, organization.ErrForbidden) {
 		t.Fatal("genuine removed member retained access", e)
+	}
+	// Re-admit the actual organization member before terminal team deletion so
+	// the deletion assertion cannot pass merely because the binding was removed.
+	r.CommandID = commandID(t)
+	r.OrganizationVersion = 5
+	r.TeamVersion = 3
+	r.MembershipVersion = 2
+	commit(s.PrepareAddTeamMember(ctx, r, "127.0.0.1"))
+	ownerRead := organization.TeamReadRequest{Authentication: owner, OrganizationID: org, TeamID: team, CorrelationID: "team-management"}
+	exact, e := s.GetTeam(ctx, ownerRead)
+	if e != nil || exact.Team.Version != 4 || exact.Organization.Version != 6 {
+		t.Fatal("genuine exact team", e)
+	}
+	commit(s.PrepareUpdateTeam(ctx, organization.UpdateTeamRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: org, TeamID: team, OrganizationVersion: 6, TeamVersion: 4, Name: "Platform", CorrelationID: "team-management"}, "127.0.0.1"))
+	exact, e = s.GetTeam(ctx, ownerRead)
+	if e != nil || exact.Team.Name != "Platform" || exact.Team.Version != 5 {
+		t.Fatal("genuine team name update", e)
+	}
+	if listed, e := s.ListTeamMembers(ctx, q); e != nil || len(listed.TeamMembers) != 1 {
+		t.Fatal("genuine member absent before deletion", e)
+	}
+	deleted, e := s.PrepareDeleteTeam(ctx, organization.DeleteTeamRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: org, TeamID: team, OrganizationVersion: 7, TeamVersion: 5, CorrelationID: "team-management"}, "127.0.0.1")
+	commit(deleted, e)
+	if _, e = s.GetTeam(ctx, ownerRead); !errors.Is(e, organization.ErrForbidden) {
+		t.Fatal("genuine deleted team still accessible", e)
+	}
+	if _, e = s.ListTeamMembers(ctx, q); !errors.Is(e, organization.ErrForbidden) {
+		t.Fatal("genuine former member retained deleted team", e)
+	}
+	handle, e = deleted.Recovery()
+	if e != nil {
+		t.Fatal(e)
+	}
+	retained, e = s.Recover(ctx, recoveryOwner, handle)
+	if e != nil || retained.Receipt.Outcome != identity.CommitOutcomeCommitted || retained.Receipt.Binding != handle.Binding {
+		t.Fatal("genuine terminal deletion recovery", e)
 	}
 }
