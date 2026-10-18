@@ -371,8 +371,9 @@ func (s *Service) command(id identity.CommandID, op Operation, correlation strin
 	return Command{state: &commandState{owner: s, input: CommandInput{Binding: b, Operation: op, Organization: org, Actor: actor, Target: target, TargetUser: user, Role: role, Session: observed, Bearer: bearer, MaximumMembers: s.config.MaximumMembers, MaximumPerUser: s.config.MaximumPerUser, MaximumPerTenant: s.config.MaximumPerTenant}}}
 }
 
-// Execute checks unchanged Service custody immediately before borrowing the
-// adapter's one-command work. Later lock waits require native final admission.
+// Execute repeats current action policy with the original Service custody
+// before borrowing the adapter's one-command work. Policy callbacks run before
+// protected SQL; later lock waits require native final admission.
 // It never retries an unknown result or replaces its command identity.
 func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out StoreResult, err error) {
 	attempted := false
@@ -399,9 +400,24 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
 	defer cancel()
+	if err := bounded.Err(); err != nil {
+		return out, err
+	}
+	x := c.state.input
+	if err := s.authorize(bounded, identity.UserID(x.Binding.ActorID), x.Binding.TenantID, x.Organization.ID, x.Organization.Version, x.Operation, x.Binding.CorrelationID); err != nil {
+		return out, err
+	}
+	// An external decision is not a lease: it cannot renew the session owner's
+	// original evidence interval or the invitation's exclusive deadline.
+	now = s.config.Clock.Now()
+	if err := bounded.Err(); err != nil {
+		return out, err
+	}
+	if x.Session.ValidateAt(now) != nil || x.Operation == InvitationAccept && !now.Before(x.Invitation.Record.ExpiresAt) {
+		return out, ErrForbidden
+	}
 	attempted = true
 	out, err = work.Execute(bounded, c)
-	x := c.state.input
 	before := x.Organization.Version
 	if x.Operation == InvitationSend || x.Operation == InvitationAccept {
 		// The sole native receipt describes its invitation aggregate. Acceptance
