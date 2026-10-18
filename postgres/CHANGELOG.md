@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native pending invitation cancellation with required canonical audit and
+  lifecycle effects, accept/cancel exclusion and current-authority metadata
+  recovery. Install the additive InvitationCancellationMigrationSource after
+  existing migrations; historical migration bytes and issuer custody are unchanged.
+
 - Add current-subject organization listing through primary membership/scoped
   authority owners and existing indexes. Initial policy denials are omitted;
   late withdrawal, authority errors and scan-cap violations disclose no page.

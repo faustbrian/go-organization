@@ -34,12 +34,12 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 	if members < 1 || owners < 1 || owners > members {
 		return 0, identity.UnavailableError{}
 	}
-	if x.Operation == organization.InvitationSend {
+	if x.Operation == organization.InvitationSend || x.Operation == organization.InvitationCancel {
 		actor, err := readMember(ctx, w, b.TenantID, x.Organization.ID, identity.UserID(b.ActorID))
 		if err != nil {
 			return 0, err
 		}
-		if !actor.Active || actor.Role != organization.RoleOwner || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
+		if !actor.Active || actor.Role != x.Actor.Role || actor.Role != organization.RoleOwner && (x.Operation != organization.InvitationCancel || actor.Role != organization.RoleAdministrator) || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
 			return 0, identity.ForbiddenError{}
 		}
 		scope, err := OrganizationAuthorityScope(b.TenantID, x.Organization.ID, actor.UserID)
@@ -48,6 +48,9 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 		}
 		if err = authority.RequireAuthority(ctx, w, scope, actor.AuthorizationVersion, p.service.actor.config.Session.MaximumDuration); err != nil {
 			return 0, authorityError(err)
+		}
+		if x.Operation == organization.InvitationCancel {
+			return members, nil
 		}
 	}
 	target, err := readMember(ctx, w, b.TenantID, x.Organization.ID, b.UserID)
@@ -113,6 +116,8 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 	}
 	if x.Operation == organization.InvitationSend {
 		err = p.send(ctx, w)
+	} else if x.Operation == organization.InvitationCancel {
+		err = p.cancel(ctx, w)
 	} else {
 		err = p.accept(ctx, w, members)
 	}
@@ -128,6 +133,21 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		return identity.FeatureReceipt{}, err
 	}
 	return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, nil
+}
+
+func (p *invitationPhase) cancel(ctx context.Context, w kernel.Work) error {
+	i := p.input.Invitation.Record
+	// The pending/version fence is shared with acceptance. The original issued
+	// capability may remain cryptographically valid, but cannot cross this
+	// terminal transition; any concurrent capability consumption rolls back.
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='cancelled',version=2,cancelled_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
 }
 func (p *invitationPhase) send(ctx context.Context, w kernel.Work) error {
 	if p.execution == nil {

@@ -41,7 +41,7 @@ import (
 // The caller has just registered, confirmed and signed in both users through
 // actual public identity HTTP/services. This continuation reuses those exact
 // primary users and sessions, never SQL-created credentials or proof JSON.
-func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication) {
+func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, cancellationOnly bool) {
 	t.Helper()
 	readSteps, err := (organizationpg.InvitationMigrationSource{Version: 7001}).Load(ctx)
 	if err != nil {
@@ -221,6 +221,343 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			t.Fatal("genuine owner organization failed", e)
 		}
 		return sendInvitation(organization.ID(o), 1)
+	}
+	if cancellationOnly {
+		cancelSteps, err := (organizationpg.InvitationCancellationMigrationSource{Version: 7005}).Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A real issued row must survive the forward lifecycle extension.
+		populated := issue("invitation-cancel-populated")
+		history := append(append(baseSteps, readSteps...), capSteps...)
+		for _, source := range []migrations.Source{organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}} {
+			steps, err := source.Load(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			history = append(history, steps...)
+		}
+		runner, err = migrations.NewRunner(migrationList(append(history, cancelSteps...)), backend)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = runner.Up(ctx); err != nil {
+			t.Fatal("populated cancellation upgrade", err)
+		}
+		if _, err = runner.Up(ctx); err != nil {
+			t.Fatal("cancellation migration replay", err)
+		}
+		if metadata, err := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: populated.org, ID: populated.id, CorrelationID: "cancel-upgrade"}); err != nil || metadata.Invitation.Status != organization.InvitationPending || metadata.Invitation.Version != 1 {
+			t.Fatal("forward cancellation migration changed pending row", err)
+		}
+		// Withdraw a genuinely delivered grant without borrowing recipient proof as
+		// administrator authority. The already prepared accept must lose atomically.
+		t.Run("cancel genuine pending invitation", func(t *testing.T) {
+			inv := issue("invitation-cancel")
+			for _, denied := range []string{"nonmember", "foreign-tenant", "cross-org", "stale-org", "stale-invitation"} {
+				r := organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "cancel-denied"}
+				switch denied {
+				case "nonmember":
+					r.Authentication = recipient
+				case "foreign-tenant":
+					r.Authentication.TenantID = "foreign-tenant"
+				case "cross-org":
+					r.OrganizationID = populated.org
+				case "stale-org":
+					r.OrganizationVersion++
+				case "stale-invitation":
+					r.InvitationVersion++
+				}
+				if _, e := service.PrepareCancel(ctx, r, "127.0.0.1"); e == nil {
+					t.Fatal("invalid native cancellation admitted", denied)
+				}
+			}
+			accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "cancel-predecessor"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal("genuine predecessor acceptance prepare", e)
+			}
+			cancel, e := service.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "cancel-pending"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal("genuine cancellation prepare", e)
+			}
+			result, e := service.Execute(ctx, cancel)
+			if e != nil || result.Receipt.Outcome != identity.CommitOutcomeCommitted || result.Receipt.Feature.BeforeVersion != 1 || result.Receipt.Feature.AfterVersion != 2 {
+				t.Fatal("genuine cancellation failed", e)
+			}
+			if r, e := service.Execute(ctx, accept); e == nil || r.Receipt.Outcome == identity.CommitOutcomeCommitted {
+				t.Fatal("cancelled predecessor proof committed")
+			}
+			if _, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "cancel-predecessor-retry"}, "127.0.0.1"); e == nil {
+				t.Fatal("cancelled proof prepared again")
+			}
+			metadata, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, ID: inv.id, CorrelationID: "cancel-metadata"})
+			if e != nil || metadata.Invitation.Status != organization.InvitationCancelled || metadata.Invitation.Version != 2 {
+				t.Fatal("cancelled terminal metadata missing", e)
+			}
+			proofVerifier, e := capability.NewService(configuration.Issuer.Crypto)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e = proofVerifier.Verify(ctx, inv.proof, capability.Purpose(organization.InvitationAccept), configuration.Invitation.Audience); e != nil {
+				t.Fatal("test did not retain cryptographically valid predecessor", e)
+			}
+			if r, e := service.Execute(ctx, cancel); e != nil || r.Receipt.Binding != result.Receipt.Binding || r.Receipt.AuditEventID != result.Receipt.AuditEventID || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("original cancellation replay changed", e)
+			}
+			handle, e := cancel.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			if r, e := newService(pool).Recover(ctx, owner, handle); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("metadata-only cancelled recovery failed", e)
+			}
+			wrong := handle
+			wrong.OrganizationID = populated.org
+			if _, e := newService(pool).Recover(ctx, owner, wrong); e == nil {
+				t.Fatal("cancel recovery trusted caller-substituted organization")
+			}
+			id, e := base64.RawURLEncoding.DecodeString(string(result.Receipt.Binding.CommandID))
+			if e != nil {
+				t.Fatal(e)
+			}
+			var effects, events, members, audits int
+			if e := pool.Raw().QueryRow(ctx, `SELECT (SELECT count(*) FROM organization.command_effects WHERE command_id=$1),(SELECT count(*) FROM public.identity_outbox_bindings b JOIN public.outbox_messages m ON m.id=b.effect_id WHERE b.command_id=$5 AND m.topic='invitation.cancelled.v1'),(SELECT count(*) FROM organization.memberships WHERE tenant_id=$2 AND organization_id=$3 AND user_id=$4 AND state='active'),(SELECT count(*) FROM audit.identity_command_bindings b JOIN audit.records r ON r.record_id=b.event_id WHERE b.command_id=$5 AND r.action='identity.organization.cancel_invitation' AND r.actor_id=$6 AND r.subject_id=$7 AND r.outcome=$8)`, string(result.Receipt.Binding.CommandID), string(baselineTenant), string(inv.org), string(recipientID), id, string(ownerID), string(inv.id), int16(audit.OutcomeSucceeded)).Scan(&effects, &events, &members, &audits); e != nil || effects != 1 || events != 1 || members != 0 || audits != 1 {
+				t.Fatal("cancel duplicate effect or leaked membership", e)
+			}
+			if _, e := service.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 2, CorrelationID: "cancel-terminal"}, "127.0.0.1"); e == nil {
+				t.Fatal("terminal cancellation was prepared again")
+			}
+		})
+		for _, race := range []string{"accept-cancel", "cancel-cancel"} {
+			t.Run("cancel contention "+race, func(t *testing.T) {
+				inv := issue("invitation-" + race)
+				cancelRequest := organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "cancel-race"}
+				left, e := service.PrepareCancel(ctx, cancelRequest, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				var right organizationpg.PreparedInvitation
+				if race == "accept-cancel" {
+					right, e = service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-race"}, "127.0.0.1")
+				} else {
+					cancelRequest.CommandID = commandID(t)
+					right, e = service.PrepareCancel(ctx, cancelRequest, "127.0.0.1")
+				}
+				if e != nil {
+					t.Fatal(e)
+				}
+				start := make(chan struct{})
+				results := make(chan organization.StoreResult, 2)
+				for _, prepared := range []organizationpg.PreparedInvitation{left, right} {
+					go func() { <-start; result, _ := service.Execute(ctx, prepared); results <- result }()
+				}
+				close(start)
+				wins := 0
+				for range 2 {
+					if (<-results).Receipt.Outcome == identity.CommitOutcomeCommitted {
+						wins++
+					}
+				}
+				if wins != 1 {
+					t.Fatal("terminal contention did not have exactly one winner", wins)
+				}
+				var terminal string
+				var count, active int
+				if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.command_effects WHERE invitation_id=$1 AND operation IN('identity.organization.invitation.accept','identity.organization.invitation.cancel')),(SELECT count(*) FROM organization.memberships WHERE tenant_id=$2 AND organization_id=$3 AND user_id=$4 AND state='active') FROM organization.invitations WHERE tenant_id=$2 AND invitation_id=$1`, string(inv.id), string(baselineTenant), string(inv.org), string(recipientID)).Scan(&terminal, &count, &active); e != nil || count != 1 || terminal != "accepted" && terminal != "cancelled" || (terminal == "accepted") != (active == 1) {
+					t.Fatal("terminal contention retained inconsistent effects", e)
+				}
+			})
+		}
+		for _, boundary := range []string{"audit", "outbox"} {
+			t.Run("cancel atomic "+boundary+" failure", func(t *testing.T) {
+				inv := issue("invitation-cancel-" + boundary)
+				request := organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "cancel-rollback"}
+				prepared, e := service.PrepareCancel(ctx, request, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				table, condition := "audit.records", "NEW.action='identity.organization.cancel_invitation' AND NEW.outcome=1"
+				if boundary == "outbox" {
+					table, condition = "public.outbox_messages", "NEW.topic='invitation.cancelled.v1'"
+				}
+				if _, e = pool.Raw().Exec(ctx, `CREATE FUNCTION organization.reject_cancel_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF `+condition+` THEN RAISE EXCEPTION USING ERRCODE='23514',MESSAGE='controlled cancellation effect failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_cancel_fixture BEFORE INSERT ON `+table+` FOR EACH ROW EXECUTE FUNCTION organization.reject_cancel_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				result, failure := service.Execute(ctx, prepared)
+				if _, e = pool.Raw().Exec(ctx, `DROP TRIGGER reject_cancel_fixture ON `+table+`; DROP FUNCTION organization.reject_cancel_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				if failure == nil || result.Receipt.Outcome != identity.CommitOutcomeNotCommitted {
+					t.Fatal("required cancellation effect failure did not roll back", failure)
+				}
+				var state string
+				var effects int
+				if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.command_effects WHERE command_id=$1) FROM organization.invitations WHERE tenant_id=$2 AND invitation_id=$3`, string(request.CommandID), string(baselineTenant), string(inv.id)).Scan(&state, &effects); e != nil || state != "pending" || effects != 0 {
+					t.Fatal("failed cancellation retained terminal effect", e)
+				}
+				accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-after-cancel-rollback"}, "127.0.0.1")
+				if e != nil {
+					t.Fatal("cancel rollback consumed predecessor proof", e)
+				}
+				if result, e := service.Execute(ctx, accept); e != nil || result.Receipt.Outcome != identity.CommitOutcomeCommitted {
+					t.Fatal("predecessor proof unusable after cancellation rollback", e)
+				}
+			})
+		}
+		for _, stage := range []string{"execute", "management", "query", "replay"} {
+			for _, withdrawal := range []string{"member", "session", "epoch"} {
+				if stage == "replay" && withdrawal != "member" {
+					continue
+				}
+				t.Run("cancel current authority "+stage+" "+withdrawal, func(t *testing.T) {
+					inv := issue("cancel-" + stage + "-" + withdrawal)
+					admin := recipient
+					if withdrawal == "session" {
+						admin = signinRecipient()
+					} // Withdraw only an additional genuinely issued session.
+					add, e := organizations.PrepareAddMember(ctx, organization.MemberRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 1, UserID: recipientID, Role: organization.RoleAdministrator, CorrelationID: "cancel-admin"}, "127.0.0.1")
+					if e != nil {
+						t.Fatal(e)
+					}
+					if r, e := organizations.Execute(ctx, add); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+						t.Fatal("genuine administrator admission", e)
+					}
+					token, e := session.ParseToken(admin.Bearer.Token())
+					if e != nil {
+						t.Fatal(e)
+					}
+					credential, e := session.NewCredential(session.CredentialBearer, token)
+					if e != nil {
+						t.Fatal(e)
+					}
+					observed, e := sessions.Get(ctx, session.GetRequest{TenantID: admin.TenantID, Credential: credential})
+					if e != nil {
+						t.Fatal(e)
+					}
+					bound, e := observed.Session.Bindings()
+					if e != nil {
+						t.Fatal(e)
+					}
+					hook := &invitationCancellationPolicy{base: policy}
+					c := configuration
+					c.Authorization = hook
+					q := *configuration.Coordinator.QueryPolicy
+					q.Authorization = hook
+					c.Coordinator.QueryPolicy, c.Coordinator.AdmissionPolicy = &q, &q
+					current, e := organizationpg.NewInvitationService(repository, c)
+					if e != nil {
+						t.Fatal(e)
+					}
+					prepared, e := current.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: admin, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 2, InvitationVersion: 1, CorrelationID: "cancel-current"}, "127.0.0.1")
+					if e != nil {
+						t.Fatal("genuine administrator cancel prepare", e)
+					}
+					if stage != "execute" {
+						if r, e := current.Execute(ctx, prepared); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+							t.Fatal("genuine administrator cancellation", e)
+						}
+					}
+					fired := false
+					hook.before = func(ctx context.Context, d authorization.DecisionContext) error {
+						resource := "organization"
+						if stage == "query" {
+							resource = "identity.user"
+						}
+						if fired || d.Request.Action != authorization.Action(organization.InvitationCancel) || d.Request.Resource.Type != authorization.ResourceType(resource) {
+							return nil
+						}
+						fired = true
+						switch withdrawal {
+						case "session":
+							_, e := pool.Raw().Exec(ctx, `UPDATE session_store.sessions SET state='revoked' WHERE tenant_id=$1 AND session_id=$2`, string(admin.TenantID), bound.SessionID)
+							return e
+						case "epoch":
+							p, e := organizations.PrepareUpdate(ctx, organization.UpdateRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 2, Name: "Changed cancellation policy", Slug: "changed-" + stage + "-" + withdrawal, CorrelationID: "cancel-policy-change"}, "127.0.0.1")
+							if e != nil {
+								return e
+							}
+							_, e = organizations.Execute(ctx, p)
+							return e
+						default:
+							p, e := organizations.PrepareRemoveMember(ctx, organization.MemberRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 2, UserID: recipientID, MemberVersion: 1, CorrelationID: "cancel-admin-removal"}, "127.0.0.1")
+							if e != nil {
+								return e
+							}
+							_, e = organizations.Execute(ctx, p)
+							return e
+						}
+					}
+					if stage == "execute" || stage == "replay" {
+						r, e := current.Execute(ctx, prepared)
+						if e == nil || r.Receipt.Outcome == identity.CommitOutcomeCommitted {
+							t.Fatal("withdrawn administrator committed cancellation")
+						}
+					} else {
+						handle, e := prepared.Recovery()
+						if e != nil {
+							t.Fatal(e)
+						}
+						if r, e := current.Recover(ctx, admin, handle); !errors.Is(e, organization.ErrForbidden) || r.Receipt.Outcome != identity.CommitOutcomeInvalid {
+							t.Fatal("late authority withdrawal disclosed retained cancellation", e)
+						}
+					}
+					if !fired {
+						t.Fatal("current authority oracle did not execute")
+					}
+				})
+			}
+		}
+		t.Run("cancel lost acknowledgment recovery", func(t *testing.T) {
+			inv := issue("invitation-cancel-lost-ack")
+			fault := new(commitResponseLoss)
+			faultPool, e := database.Connect(ctx, database.Config{DSN: os.Getenv("GOLIB_ORGANIZATION_TEST_POSTGRES_DSN"), MaxConns: 2, Configure: func(c *database.PoolConfig) error {
+				c.ConnConfig.Database = pool.Raw().Config().ConnConfig.Database
+				c.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+					conn, e := (&net.Dialer{}).DialContext(ctx, network, address)
+					if e != nil {
+						return nil, e
+					}
+					return &lossyCommitConn{Conn: conn, fault: fault}, nil
+				}
+				return nil
+			}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() {
+				cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				defer stop()
+				if e := faultPool.Close(cleanup); e != nil {
+					t.Error(e)
+				}
+			}()
+			faultService := newService(faultPool)
+			prepared, e := faultService.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "cancel-lost-ack"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			handle, e := prepared.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			wire, e := json.Marshal(handle)
+			if e != nil {
+				t.Fatal(e)
+			}
+			var restored organizationpg.InvitationRecovery
+			if json.Unmarshal(wire, &restored) != nil || restored != handle {
+				t.Fatal("cancel recovery correlation changed")
+			}
+			fault.armed.Store(true)
+			result, e := faultService.Execute(ctx, prepared)
+			if e == nil || !fault.lost.Load() || result.Receipt.Outcome != identity.CommitOutcomeUnknown || result.Receipt.Binding != restored.Binding {
+				t.Fatal("cancel lost acknowledgment not unknown", e)
+			}
+			if recovered, e := newService(pool).Recover(ctx, signinOwner(), restored); e != nil || recovered.Receipt.Outcome != identity.CommitOutcomeCommitted || recovered.Receipt.Binding != restored.Binding {
+				t.Fatal("genuine fresh-session metadata-only cancel recovery", e)
+			}
+		})
+		return
 	}
 	first, second := issue("invitation-first"), issue("invitation-second")
 	wrongStatusProfile := configuration
@@ -650,6 +987,20 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 // identity/session/organization authority. The actual authorization engine must
 // reevaluate it; native authority fences cannot stand in for that decision.
 type revocableInvitationEvaluator struct{ denied atomic.Bool }
+
+type invitationCancellationPolicy struct {
+	base   authorization.Service
+	before func(context.Context, authorization.DecisionContext) error
+}
+
+func (p *invitationCancellationPolicy) Decide(ctx context.Context, d authorization.DecisionContext) (authorization.Decision, error) {
+	if p.before != nil {
+		if err := p.before(ctx, d); err != nil {
+			return authorization.Decision{}, err
+		}
+	}
+	return p.base.Decide(ctx, d)
+}
 
 func (p *revocableInvitationEvaluator) Evaluate(ctx context.Context, r authorization.Request) (authorization.Decision, error) {
 	if p.denied.Load() && r.Action == "identity.organization.invitation-send" {

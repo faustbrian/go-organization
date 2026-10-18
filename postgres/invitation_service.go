@@ -47,7 +47,8 @@ type InvitationDeliveryConfig struct {
 // each immutable prepared invocation enlists its native phase in that sole
 // kernel with actual capability, audit, risk and paired-lifecycle owners.
 // Session/issuer/envelope keys and borrowed owners must outlive pending work.
-// Install membership, invitation-read and invitation-capability migrations plus
+// Install membership, invitation-read, invitation-capability and (for cancel)
+// invitation-cancellation migrations plus
 // all selected shared owner migrations before invoking this service.
 type InvitationServiceConfig struct {
 	Core          organization.Config
@@ -72,7 +73,7 @@ func (InvitationServiceConfig) MarshalText() ([]byte, error) {
 	return nil, organization.ErrSensitiveSerialization
 }
 
-// InvitationService owns native send/accept composition, never another token
+// InvitationService owns native send/accept/cancel composition, never another token
 // engine, journal, provider or authentication authority. It starts no goroutine.
 // Configuration is immutable; independent preparations may run concurrently,
 // while each PreparedInvitation is serial-use and preserves original custody.
@@ -235,6 +236,19 @@ func (s *InvitationService) PrepareAccept(ctx context.Context, r organization.In
 	return s.prepare(ctx, c, network)
 }
 
+// PrepareCancel selects a current owner/administrator and exact pending row.
+// It neither resolves the recipient's current email nor consumes a capability.
+func (s *InvitationService) PrepareCancel(ctx context.Context, r organization.InvitationCancelRequest, network string) (PreparedInvitation, error) {
+	if s == nil {
+		return PreparedInvitation{}, organization.ErrInvalidInput
+	}
+	c, err := s.root.PrepareCancel(ctx, r)
+	if err != nil {
+		return PreparedInvitation{}, err
+	}
+	return s.prepare(ctx, c, network)
+}
+
 func (s *InvitationService) prepare(ctx context.Context, c organization.Command, network string) (PreparedInvitation, error) {
 	if ctx == nil {
 		return PreparedInvitation{}, organization.ErrInvalidInput
@@ -258,12 +272,14 @@ func (s *InvitationService) prepare(ctx context.Context, c organization.Command,
 		return PreparedInvitation{}, organization.ErrForbidden
 	}
 	p.occurred = at.UTC()
-	p.recipient, err = s.repository.resolveRecipient(bounded, x.Binding.TenantID, x.Binding.UserID, x.Invitation.Record.RecipientIdentifierID)
-	if err != nil {
-		return PreparedInvitation{}, err
-	}
-	if p.recipient.User != x.TargetUser || p.recipient.Identifier != x.Invitation.RecipientIdentifier {
-		return PreparedInvitation{}, organization.ErrConflict
+	if x.Operation != organization.InvitationCancel {
+		p.recipient, err = s.repository.resolveRecipient(bounded, x.Binding.TenantID, x.Binding.UserID, x.Invitation.Record.RecipientIdentifierID)
+		if err != nil {
+			return PreparedInvitation{}, err
+		}
+		if p.recipient.User != x.TargetUser || p.recipient.Identifier != x.Invitation.RecipientIdentifier {
+			return PreparedInvitation{}, organization.ErrConflict
+		}
 	}
 	if x.Operation == organization.InvitationAccept {
 		if err = p.loadCapability(bounded); err != nil {

@@ -179,8 +179,43 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend/cancel/reject/explicit-expire, recipient listing and other full-goal
+Resend/reject/explicit-expire, recipient listing and other full-goal
 profiles remain unimplemented.
+
+### Pending invitation cancellation
+
+Install the forward-only `InvitationCancellationMigrationSource` at a permanent
+version after all already selected organization migrations before calling
+`InvitationService.PrepareCancel`. Installed invitation migration bytes remain
+unchanged; existing pending/accepted records and original issuer custody survive
+the upgrade. `InvitationCancelRequest` selects exact organization and invitation
+versions and current owner/administrator authentication. Recipient email removal
+or suspension does not by itself block cancellation.
+
+Execution uses the existing risk/coordinator/current-session, organization,
+membership and scoped-authority owners. It atomically changes live pending1 to
+cancelled2, persists the required standard-retention
+`identity.organization.cancel_invitation` audit and `invitation.cancelled.v1`
+outbox event, and records the original result. It neither sends another message
+nor consumes/reissues a capability. An already queued/sent invitation may still
+arrive, but its proof cannot authorize acceptance. Acceptance independently requires pending1;
+accept/cancel contention has one terminal winner, and an unsuccessful acceptance
+cannot retain provisional membership or capability consumption. No organization
+policy epoch or global credential is changed because cancellation withdraws a
+prospective grant, not existing membership authority. Cancelled rows cannot be
+reused by this API; old readers encountering the new state fail closed.
+
+Persist the existing safe `PreparedInvitation.Recovery()` handle before
+execution. Cancellation recovery needs no original bearer/proof but does require
+a current genuine session for the original actor and current owner/administrator
+authority in the exact owning organization. Both external disclosure decisions
+are followed by the existing native session/member/scoped-epoch fence; original
+freshness is never renewed. Unknown results are reconciled through the sole
+kernel, not replaced by a new cancellation command. Expired projections are not
+live pending invitations and are not cancelled by this finite profile.
+An original prepared cancellation retry that finds a retained result uses this
+same current disclosure policy, while retaining its original freshness interval;
+an old management membership cannot authorize replay of its historical receipt.
 
 ## Optional native teams
 

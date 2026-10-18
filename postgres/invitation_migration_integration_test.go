@@ -117,4 +117,34 @@ func TestInvitationMigrationPreservesMembershipAndEnforcesScope(t *testing.T) {
 	if _, err = f.pool.Raw().Exec(f.ctx, `UPDATE organization.invitations SET capability_envelope=decode(repeat('01',32),'hex'),capability_replay_key_version=1`); err != nil {
 		t.Fatal("valid original issuance reference rejected", err)
 	}
+	if _, err = f.pool.Raw().Exec(f.ctx, `INSERT INTO organization.invitations(tenant_id,organization_id,invitation_id,recipient_user_id,recipient_identifier_id,recipient_identifier_version,created_by,role,state,version,created_at,expires_at,accepted_at,delivery_effect_id) SELECT tenant_id,organization_id,'invitation-accepted',recipient_user_id,recipient_identifier_id,recipient_identifier_version,created_by,role,'accepted',2,created_at,expires_at,clock_timestamp(),delivery_effect_id FROM organization.invitations WHERE invitation_id='invitation-a'`); err != nil {
+		t.Fatal("populated accepted row setup", err)
+	}
+	cancellationSteps, err := (organizationpg.InvitationCancellationMigrationSource{Version: 303}).Load(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := append(append(append(append(migrationList(nil), f.history...), additional...), capabilitySteps...), cancellationSteps...)
+	runner, err = migrations.NewRunner(history, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = runner.Up(f.ctx); err != nil {
+		t.Fatal("populated cancellation upgrade", err)
+	}
+	if _, err = runner.Up(f.ctx); err != nil {
+		t.Fatal("cancellation migration replay", err)
+	}
+	var pending, accepted int
+	if err = f.pool.Raw().QueryRow(f.ctx, `SELECT count(*) FILTER(WHERE state='pending' AND version=1 AND capability_envelope IS NOT NULL AND cancelled_at IS NULL),count(*) FILTER(WHERE state='accepted' AND version=2 AND accepted_at IS NOT NULL AND cancelled_at IS NULL) FROM organization.invitations`).Scan(&pending, &accepted); err != nil || pending != 1 || accepted != 1 {
+		t.Fatal("lifecycle extension rewrote populated state/custody", err)
+	}
+	if _, err = f.pool.Raw().Exec(f.ctx, `UPDATE organization.invitations SET state='cancelled',version=2,cancelled_at=clock_timestamp() WHERE invitation_id='invitation-a'`); err != nil {
+		t.Fatal("new cancelled terminal state rejected", err)
+	}
+	// Replacing the invitation effect constraint must not drop the older
+	// cross-column before/after invariant (its generated name lacks the suffix).
+	if _, err = f.pool.Raw().Exec(f.ctx, `UPDATE organization.command_effects SET after_version=before_version+2`); err == nil {
+		t.Fatal("cancellation migration dropped original effect version invariant")
+	}
 }

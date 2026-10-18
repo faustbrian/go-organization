@@ -33,7 +33,7 @@ require (
 	github.com/faustbrian/go-identity/session v0.0.0-20261018122041-6fadb5e0d72a
 	github.com/faustbrian/go-identity/session/postgres v0.0.0-20261018122552-e3b8aff9fc76
 	github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc
-	github.com/faustbrian/go-organization v0.0.0-20261018162130-956176f11f23
+	github.com/faustbrian/go-organization v0.0.0-20261018170015-a3a9254c07ab
 	github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff
 	github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7
 	github.com/faustbrian/go-secret-envelope/v2 v2.0.1

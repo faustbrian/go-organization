@@ -14,7 +14,7 @@ import (
 
 // InvitationRecovery is persistable safe correlation, never authority. Binding
 // names the invitation; OrganizationID must match the original frozen send
-// declaration or the accepting invitation's durable owning record.
+// declaration or the accepting/cancelled invitation's durable owning record.
 // It contains no session, proof, output ciphertext or renewable execution lease.
 type InvitationRecovery struct {
 	Binding        identity.CommandBinding
@@ -41,7 +41,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	}
 	b := recovery.Binding
 	op := organization.Operation(b.OperationID)
-	if (op != organization.InvitationSend && op != organization.InvitationAccept) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
+	if (op != organization.InvitationSend && op != organization.InvitationAccept && op != organization.InvitationCancel) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	x := organization.CommandInput{Binding: b, Operation: op, Organization: organization.Organization{ID: recovery.OrganizationID}, Invitation: organization.InvitationInput{Record: organization.Invitation{ID: organization.ID(b.RecordID)}}}
@@ -79,8 +79,24 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	var version uint64
+	var cancellation *recoveryInput
 	query := identity.RecoveryQuery{CommandID: b.CommandID, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
-	if x.Operation == organization.InvitationSend {
+	if x.Operation == organization.InvitationCancel {
+		if b.UserID != actor.UserID {
+			return organization.StoreResult{}, organization.ErrForbidden
+		}
+		current, err := s.repository.ReadInvitation(bounded, organization.InvitationQuery{Operation: op, TenantID: b.TenantID, ActorID: actor.UserID, OrganizationID: x.Organization.ID, InvitationID: x.Invitation.Record.ID})
+		if err != nil {
+			return organization.StoreResult{}, err
+		}
+		if current.Actor.Role != organization.RoleOwner && current.Actor.Role != organization.RoleAdministrator {
+			return organization.StoreResult{}, organization.ErrForbidden
+		}
+		version = current.Organization.Version
+		binding := b
+		binding.RecordID = string(current.Organization.ID)
+		cancellation = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: current.Organization, member: current.Actor}
+	} else if x.Operation == organization.InvitationSend {
 		// Acknowledged preparation precedes the domain row. The sole kernel's
 		// immutable original declaration, never caller-supplied org correlation
 		// or row absence, binds historical lookup to the owning organization.
@@ -141,6 +157,14 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	// independently of the organization policy decision above.
 	caller.Request.Resource = authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(b.UserID)}
 	receipt, err := p.coordinator.RecoverFeatureCommand(bounded, query, caller)
+	if cancellation != nil {
+		// Reuse the native membership owner's exact session/org/member/scoped
+		// fence after both external callbacks; no renewed policy or observation.
+		owner := Service{participant: s.actor, config: ServiceConfig{Core: s.config.Core, Sessions: s.config.Sessions}}
+		if e := owner.revalidateRecovery(bounded, cancellation); e != nil {
+			return organization.StoreResult{}, e
+		}
+	}
 	if observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
@@ -156,7 +180,11 @@ func (s *InvitationService) recoverPrepared(ctx context.Context, p *invitationPh
 	if p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
-	return s.Recover(ctx, organization.Authentication{TenantID: p.input.Binding.TenantID, Bearer: p.input.Bearer}, InvitationRecovery{Binding: p.input.Binding, OrganizationID: p.input.Organization.ID})
+	result, err := s.Recover(ctx, organization.Authentication{TenantID: p.input.Binding.TenantID, Bearer: p.input.Bearer}, InvitationRecovery{Binding: p.input.Binding, OrganizationID: p.input.Organization.ID})
+	if p.input.Operation == organization.InvitationCancel && p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
+	return result, err
 }
 func invitationPublicError(err error) error {
 	if err == nil {
