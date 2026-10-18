@@ -138,13 +138,19 @@ func consumerDatabase(t *testing.T) (context.Context, *database.Pool, *sql.DB) {
 	return ctx, pool, db
 }
 
-func TestOrganizationGenuinePasswordConsumer(t *testing.T) { exerciseGenuinePasswordConsumer(t, false) }
-
-func TestOrganizationGenuineInvitationCancellationConsumer(t *testing.T) {
-	exerciseGenuinePasswordConsumer(t, true)
+func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "existing")
 }
 
-func exerciseGenuinePasswordConsumer(t *testing.T, cancellationOnly bool) {
+func TestOrganizationGenuineInvitationCancellationConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "cancel")
+}
+
+func TestOrganizationGenuineInvitationMineConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "mine")
+}
+
+func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	ctx, pool, db := consumerDatabase(t)
 	keyNames := []string{"fingerprint", "request", "counter", "risk-evidence", "risk-seal", "preauth-cookie", "session-token", "session-csrf", "http-device", "delivery-envelope", "dummy-password", "capability-binding", "capability-signing", "signin-proof", "migration", "counter-replay", "http-rate", "otp-lockout", "otp-wrap", "otp-attempt", "otp-code", "otp-intent", "identifier", "delivery-digest", "delivery-namespace", "password-flow", "signup-binding", "signup-intent", "verification-scope", "capability-replay", "capability-envelope", "counter-envelope", "verification-http"}
 	keys := make(map[string][32]byte, len(keyNames))
@@ -406,12 +412,12 @@ func exerciseGenuinePasswordConsumer(t *testing.T, cancellationOnly bool) {
 	}
 	recoveryOwner := owner
 	trackOwnerSignin := func() organization.Authentication { recoveryOwner = signinOwner(); return recoveryOwner }
-	if cancellationOnly {
-		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, true)
+	if invitationProfile != "existing" {
+		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile)
 		return
 	}
 	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
-	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, false)
+	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, "existing")
 	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
 	exerciseGenuineSelfLeave(t, ctx, service, owner, member, memberID, signinRecipient)
 	exerciseGenuineOrganizationList(t, ctx, service, owner, member, memberID)

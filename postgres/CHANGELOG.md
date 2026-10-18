@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add genuine current-recipient invitation listing without organization
+  membership, with lifecycle-complete safe pages and late session/directory
+  revalidation. Install the additive concurrent recipient-index migration before
+  selecting the read; prior schemas and invitation mutation framing are unchanged.
+
 - Add native pending invitation cancellation with required canonical audit and
   lifecycle effects, accept/cancel exclusion and current-authority metadata
   recovery. Install the additive InvitationCancellationMigrationSource after

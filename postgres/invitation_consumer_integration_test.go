@@ -11,6 +11,9 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,7 +44,7 @@ import (
 // The caller has just registered, confirmed and signed in both users through
 // actual public identity HTTP/services. This continuation reuses those exact
 // primary users and sessions, never SQL-created credentials or proof JSON.
-func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, cancellationOnly bool) {
+func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, selectedProfile string) {
 	t.Helper()
 	readSteps, err := (organizationpg.InvitationMigrationSource{Version: 7001}).Load(ctx)
 	if err != nil {
@@ -222,7 +225,210 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
-	if cancellationOnly {
+	if selectedProfile == "mine" {
+		first, second, third := issue("mine-pending"), issue("mine-cancelled"), issue("mine-accepted")
+		var history migrationList
+		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}} {
+			steps, e := source.Load(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			history = append(history, steps...)
+		}
+		runner, e := migrations.NewRunner(history, backend)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("populated recipient-index migration", e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("recipient-index migration replay", e)
+		}
+		cancel, e := service.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: second.id, OrganizationID: second.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "mine-cancel"}, "127.0.0.1")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if r, e := service.Execute(ctx, cancel); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+			t.Fatal(e)
+		}
+		accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: third.id, OrganizationID: third.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: third.proof, CorrelationID: "mine-accept"}, "127.0.0.1")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if r, e := service.Execute(ctx, accept); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+			t.Fatal(e)
+		}
+		for _, inv := range []issued{first, second} {
+			if _, e := organizations.Get(ctx, organization.ReadRequest{Authentication: recipient, OrganizationID: inv.org, CorrelationID: "mine-no-membership"}); !errors.Is(e, organization.ErrForbidden) {
+				t.Fatal("recipient fixture unexpectedly has membership", e)
+			}
+		}
+		request := organization.InvitationListMineRequest{Authentication: recipient, Limit: 1, CorrelationID: "mine"}
+		var found []organization.Invitation
+		var firstCursor organization.InvitationCursor
+		for range 4 {
+			page, e := service.ListMine(ctx, request)
+			if e != nil {
+				t.Fatal("genuine recipient listing", e)
+			}
+			if len(page.Invitations) != 1 {
+				t.Fatal("recipient page lost expected record")
+			}
+			found = append(found, page.Invitations...)
+			if page.NextCursor == "" {
+				break
+			}
+			if firstCursor == "" {
+				firstCursor = page.NextCursor
+			}
+			request.Cursor = page.NextCursor
+		}
+		expected := []organization.ID{first.id, second.id, third.id}
+		sort.Slice(expected, func(a, b int) bool { return expected[a] < expected[b] })
+		if len(found) != 3 {
+			t.Fatal("recipient listing did not terminate exactly")
+		}
+		for n, i := range found {
+			if i.ID != expected[n] || i.RecipientUserID != recipientID {
+				t.Fatal("recipient keyset lost scope/order")
+			}
+		}
+		statuses := map[organization.ID]organization.InvitationStatus{}
+		for _, i := range found {
+			statuses[i.ID] = i.Status
+		}
+		if statuses[first.id] != organization.InvitationPending || statuses[second.id] != organization.InvitationCancelled || statuses[third.id] != organization.InvitationAccepted {
+			t.Fatal("recipient lifecycle visibility silently filtered")
+		}
+		wire, e := json.Marshal(found)
+		if e != nil || strings.Contains(string(wire), "@") || strings.Contains(string(wire), "Proof") || strings.Contains(string(wire), "Ciphertext") || strings.Contains(string(wire), "CanonicalValue") {
+			t.Fatal("recipient metadata leaked secret/address")
+		}
+		if page, e := service.ListMine(ctx, organization.InvitationListMineRequest{Authentication: owner, Limit: 200, CorrelationID: "mine-other-user"}); e != nil || len(page.Invitations) != 0 {
+			t.Fatal("creator listed another recipient's invitation", e)
+		}
+		wrong := organization.InvitationListMineRequest{Authentication: owner, Limit: 1, Cursor: firstCursor, CorrelationID: "mine-cursor-scope"}
+		if _, e := service.ListMine(ctx, wrong); !errors.Is(e, organization.ErrInvalidInput) {
+			t.Fatal("recipient cursor transferred to creator", e)
+		}
+		wrong.Authentication = recipient
+		wrong.Authentication.TenantID = "foreign-tenant"
+		if _, e := service.ListMine(ctx, wrong); e == nil {
+			t.Fatal("recipient bearer crossed tenant")
+		}
+		for _, invalid := range []organization.InvitationListMineRequest{{Authentication: recipient, Limit: 201, CorrelationID: "mine-invalid"}, {Authentication: recipient, Limit: 1, Cursor: organization.InvitationCursor(strings.Repeat("x", 513)), CorrelationID: "mine-invalid"}} {
+			if _, e := service.ListMine(ctx, invalid); !errors.Is(e, organization.ErrInvalidInput) {
+				t.Fatal("unbounded recipient request admitted", e)
+			}
+		}
+		if _, e := pool.Raw().Exec(ctx, `UPDATE organization.invitations SET created_at=clock_timestamp()-interval '2 hours',expires_at=date_trunc('second',clock_timestamp()-interval '1 second') WHERE tenant_id=$1 AND invitation_id=$2`, string(baselineTenant), string(first.id)); e != nil {
+			t.Fatal(e)
+		}
+		page, e := service.ListMine(ctx, organization.InvitationListMineRequest{Authentication: recipient, Limit: 200, CorrelationID: "mine-expired"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, i := range page.Invitations {
+			if i.ID == first.id && i.Status != organization.InvitationExpired {
+				t.Fatal("recipient expiry projection stale")
+			}
+		}
+		t.Run("list mine bounded native query plan", func(t *testing.T) { exerciseInvitationMinePlan(t, ctx, pool, newService, recipient, third.id) })
+		for _, withdrawal := range []string{"cancel", "session"} {
+			for _, stage := range []int{1, 2} {
+				t.Run("list mine late "+withdrawal+strconv.Itoa(stage), func(t *testing.T) {
+					inv := issue("mine-late-" + withdrawal + strconv.Itoa(stage))
+					actual := recipient
+					var sessionID string
+					if withdrawal == "session" {
+						actual = signinRecipient()
+						parsed, e := session.ParseToken(actual.Bearer.Token())
+						if e != nil {
+							t.Fatal(e)
+						}
+						credential, e := session.NewCredential(session.CredentialBearer, parsed)
+						if e != nil {
+							t.Fatal(e)
+						}
+						current, e := sessions.Get(ctx, session.GetRequest{TenantID: actual.TenantID, Credential: credential})
+						if e != nil {
+							t.Fatal(e)
+						}
+						bindings, e := current.Session.Bindings()
+						if e != nil {
+							t.Fatal(e)
+						}
+						sessionID = bindings.SessionID
+					}
+					hook := &invitationCancellationPolicy{base: policy}
+					calls := 0
+					hook.before = func(ctx context.Context, d authorization.DecisionContext) error {
+						if d.Request.Action != authorization.Action(organization.InvitationListMine) {
+							return nil
+						}
+						calls++
+						if calls != stage {
+							return nil
+						}
+						if d.Request.Resource.Type != "identity.user" || string(d.Request.Resource.ID) != string(recipientID) || string(d.Request.Subject.ID) != string(recipientID) {
+							return identity.ForbiddenError{}
+						}
+						if withdrawal == "session" {
+							_, e := pool.Raw().Exec(ctx, `UPDATE session_store.sessions SET state='revoked' WHERE tenant_id=$1 AND session_id=$2`, string(baselineTenant), sessionID)
+							return e
+						}
+						p, e := service.PrepareCancel(ctx, organization.InvitationCancelRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "mine-late-cancel"}, "127.0.0.1")
+						if e != nil {
+							return e
+						}
+						_, e = service.Execute(ctx, p)
+						return e
+					}
+					c := configuration
+					c.Authorization = hook
+					selected, e := organizationpg.NewInvitationService(repository, c)
+					if e != nil {
+						t.Fatal(e)
+					}
+					result, e := selected.ListMine(ctx, organization.InvitationListMineRequest{Authentication: actual, Limit: 200, CorrelationID: "mine-late"})
+					if e == nil || len(result.Invitations) != 0 || result.NextCursor != "" || calls < stage {
+						t.Fatal("late recipient/session withdrawal released stale partial page", e)
+					}
+				})
+			}
+		}
+		t.Run("list mine current identifier withdrawal", func(t *testing.T) {
+			hook := &invitationCancellationPolicy{base: policy}
+			fired := false
+			hook.before = func(ctx context.Context, d authorization.DecisionContext) error {
+				if fired || d.Request.Action != authorization.Action(organization.InvitationListMine) {
+					return nil
+				}
+				fired = true
+				// Controlled withdrawal of the actual directory owner's verified
+				// identifier/epoch, never a replacement session or identity reader.
+				_, e := pool.Raw().Exec(ctx, `WITH withdrawn AS (UPDATE identity.identifiers SET verified=false,is_primary=false,verification_state=3,verification_version=verification_version+1,version=version+1 WHERE tenant_id=$1 AND user_id=$2 AND identifier_id=$3 RETURNING user_id) UPDATE identity.users SET identifier_version=identifier_version+1 WHERE tenant_id=$1 AND user_id IN(SELECT user_id FROM withdrawn)`, string(baselineTenant), string(recipientID), string(identifiers.Identifiers[0].ID))
+				return e
+			}
+			c := configuration
+			c.Authorization = hook
+			selected, e := organizationpg.NewInvitationService(repository, c)
+			if e != nil {
+				t.Fatal(e)
+			}
+			result, e := selected.ListMine(ctx, organization.InvitationListMineRequest{Authentication: recipient, Limit: 200, CorrelationID: "mine-identifier-withdrawal"})
+			if e == nil || !fired || len(result.Invitations) != 0 || result.NextCursor != "" {
+				t.Fatal("withdrawn verified identifier released stale page", e)
+			}
+			state, e := directory.GetIdentifierState(ctx, identity.IdentifierQuery{TenantID: baselineTenant, UserID: recipientID, MaximumIdentifiers: 128})
+			if e != nil || state.AuthorityVersion <= 1 || len(state.Identifiers) != 1 || state.Identifiers[0].Verified {
+				t.Fatal("actual identifier authority oracle did not withdraw", e)
+			}
+		})
+		return
+	}
+	if selectedProfile == "cancel" {
 		cancelSteps, err := (organizationpg.InvitationCancellationMigrationSource{Version: 7005}).Load(ctx)
 		if err != nil {
 			t.Fatal(err)

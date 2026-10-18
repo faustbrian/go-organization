@@ -179,7 +179,7 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend/reject/explicit-expire, recipient listing and other full-goal
+Resend/reject/explicit-expire and other full-goal
 profiles remain unimplemented.
 
 ### Pending invitation cancellation
@@ -216,6 +216,52 @@ live pending invitations and are not cancelled by this finite profile.
 An original prepared cancellation retry that finds a retained result uses this
 same current disclosure policy, while retaining its original freshness interval;
 an old management membership cannot authorize replay of its historical receipt.
+
+### Current recipient listing
+
+`InvitationService.ListMine` implements the distinct
+`identity.organization.invitation.list-mine` action. It authenticates the human
+recipient through the existing session owner, reads that user's current verified
+email identifiers through the native directory owner, and evaluates current
+self-list policy on `identity.user`. It does not require organization membership
+or reuse administrator `Get`/`List` or delivery-status authority.
+
+All retained pending, accepted and cancelled invitations with the exact current
+recipient user and verified identifier ID/version are visible; pending records
+project expired at exclusive expiry. Removed, unverified or superseded identifier
+versions cannot reveal historical invitations. Organization membership and retained
+organization status do not filter this safe history: listing reveals no organization
+view or acceptance grant, and later acceptance still enforces current organization
+authority. Unknown future persisted states fail closed rather than disappearing.
+
+Pages contain only `Invitation` metadata, no address, delivery ciphertext/status,
+capability or bearer. Limit is1–200. The scope-bound opaque cursor uses C bytewise
+invitation-ID order; installed `PRIMARY KEY(tenant_id,invitation_id)` makes that
+key unique even across organizations within one tenant. It is not a snapshot:
+earlier additions require restarting. Both policy callbacks are followed by live
+session and exact directory/identifier/page revalidation without renewing original
+freshness. Late cancellation or authority changes return no partial page.
+
+Install `InvitationRecipientIndexMigrationSource` at a permanent later version
+before selecting this read. It creates the recipient/identifier/version/keyset
+index concurrently, outside a transaction, without rewriting installed migrations
+or rows. An interrupted invalid build must be inspected/reconciled through the
+migration owner before activation; it is not hidden by `IF NOT EXISTS`.
+
+The query supplies at most128 verified-identifier partitions from the directory's
+existing limit. Each partition emits at most Limit+1 candidates before merging
+at most25,728 candidates into a final <=201-row page. The exact-prefix index avoids
+filtering unrelated historical identifier versions; context still bounds work
+under MVCC churn or adverse planner conditions. It adds one retained immutable-key
+index entry per invitation, without indexed mutable lifecycle/delivery columns.
+This costs storage and insert/delete maintenance; no existing index is removed.
+
+The isolated plan regression captures SQL/bindings from the actual public read,
+compares normal-planner scans with and without only this index on20,003 controlled
+history rows, and records tuple/buffer work plus heap/index sizes. Those added rows
+are a storage-volume fixture, not issuance evidence. This proves that selected
+access path and populated rollout, not deployed latency, global concurrency,
+production frequency, future retention growth or production write cost.
 
 ## Optional native teams
 
