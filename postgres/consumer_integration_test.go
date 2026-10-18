@@ -404,6 +404,7 @@ func TestOrganizationGenuinePasswordConsumer(t *testing.T) {
 	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin)
 	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
 	exerciseGenuineSelfLeave(t, ctx, service, owner, member, memberID, signinRecipient)
+	exerciseGenuineOrganizationList(t, ctx, service, owner, member, memberID)
 	transferPolicy, e := fixtureAuthorization()
 	if e != nil {
 		t.Fatal(e)

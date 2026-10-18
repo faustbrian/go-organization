@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add current-subject organization listing through primary membership/scoped
+  authority owners and existing indexes. Initial policy denials are omitted;
+  late withdrawal, authority errors and scan-cap violations disclose no page.
+  Existing schema and mutation APIs remain unchanged.
+
 - Add native self-leave through the existing coordinator, atomic membership
   tombstone/scoped authority and organization policy epochs with protected
   removal audit/outbox effects. Existing schemas suffice; readmission cannot

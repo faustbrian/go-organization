@@ -38,6 +38,14 @@ session and policy. Recovery never rebuilds the command, re-delivers credentials
 or renews original expiry. `Get` and `ListMembers` query current primary
 membership on every call; no shared-cache closure is claimed.
 
+`ListOrganizations(ctx, organization.ListOrganizationsRequest)` needs only the
+current human's authentication, page limit and optional returned cursor. It
+scans current active self-memberships using the existing tenant/user/organization
+index, checks scoped authority and per-organization policy, then revalidates
+after callbacks before disclosing metadata. No arbitrary subject, selection,
+new schema, cursor-signing owner or application-written store is required.
+See [listing semantics](../docs/list-organizations.md).
+
 Preparation can return preliminary root-policy errors such as `ErrLastOwner`.
 Invariant denials discovered inside protected execution (quota or last-owner)
 return the generic root `ErrForbidden` with `NotCommitted`; the native command
