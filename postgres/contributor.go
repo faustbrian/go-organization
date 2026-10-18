@@ -1,0 +1,296 @@
+package postgres
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/faustbrian/go-authorization/v3"
+	authority "github.com/faustbrian/go-authorization/v3/postgres"
+	identity "github.com/faustbrian/go-identity"
+	kernel "github.com/faustbrian/go-identity/postgres"
+	"github.com/faustbrian/go-identity/session"
+	sessionpg "github.com/faustbrian/go-identity/session/postgres"
+	organization "github.com/faustbrian/go-organization"
+)
+
+// ContributorConfig fixes the one password/bearer profile and immutable limits.
+// LookupKeys maps the original retained version to opaque session-owned keys.
+// Keys, pool and owner lifetimes remain caller-owned; no key may be retired while
+// a supported original session or pending command requires it. PolicyNamespace
+// in Profile belongs to session authentication, not organization membership.
+type ContributorConfig struct {
+	Session                                          sessionpg.Config
+	Profile                                          sessionpg.IdentifierAdmissionConfig
+	LookupKeys                                       map[uint32]session.DigestKey
+	PolicyID                                         string
+	PolicyVersion                                    uint64
+	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
+}
+
+// Contributor is an immutable open registered participant, not a coordinator or
+// permission engine. It only operates on the original serial invocation's Work.
+// Separate invocations may execute concurrently; it retains no per-call state.
+type Contributor struct {
+	repository *Repository
+	config     ContributorConfig
+}
+
+var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
+
+func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
+	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 {
+		return nil, organization.ErrInvalidInput
+	}
+	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
+	probe, _ := session.ParseToken("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	for version, key := range c.LookupKeys {
+		d, e := probe.Digest(key, "validation")
+		if e != nil || d.KeyVersion != version {
+			return nil, organization.ErrInvalidInput
+		}
+		keys[version] = key
+	}
+	c.LookupKeys = keys
+	return &Contributor{repository: repository, config: c}, nil
+}
+
+func (*Contributor) Descriptor() kernel.ContributorDescriptor {
+	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.membership", Version: 1}
+}
+func (*Contributor) FeatureOperations() []identity.FeatureOperation {
+	return []identity.FeatureOperation{organization.Create.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor()}
+}
+func (ContributorConfig) Format(s fmt.State, _ rune) {
+	_, _ = s.Write([]byte("organization.postgres.ContributorConfig(redacted)"))
+}
+func (ContributorConfig) MarshalJSON() ([]byte, error) {
+	return nil, organization.ErrSensitiveSerialization
+}
+func (ContributorConfig) MarshalText() ([]byte, error) {
+	return nil, organization.ErrSensitiveSerialization
+}
+
+type nativeCommand struct {
+	spec          identity.FeatureCommandSpec
+	operation     organization.Operation
+	org           organization.Organization
+	actor, target organization.Member
+	user          identity.User
+	role          organization.Role
+	original      session.Session
+	until         time.Time
+}
+
+func text(name, value string) identity.FeatureField {
+	return identity.FeatureField{Name: "organization." + name, Value: identity.FeatureValue{Kind: identity.FeatureText, Text: value}}
+}
+func number(name string, value uint64) identity.FeatureField {
+	return identity.FeatureField{Name: "organization." + name, Value: identity.FeatureValue{Kind: identity.FeatureUint64, Uint64: value}}
+}
+
+// MapCommand freezes every domain option and the native session owner's complete
+// original fields. Bearer custody remains in identity.NewFeatureSessionCommand,
+// never in scalar metadata, persistence results or audit/outbox payloads.
+func (p *Contributor) MapCommand(c organization.Command) (identity.Command, error) {
+	x, e := c.Input()
+	if e != nil || p == nil || p.repository == nil || x.MaximumMembers != p.config.MaximumMembers || x.MaximumPerUser != p.config.MaximumPerUser || x.MaximumPerTenant != p.config.MaximumPerTenant || x.Binding.PolicyID != p.config.PolicyID || x.Binding.PolicyVersion != p.config.PolicyVersion {
+		return identity.Command{}, organization.ErrInvalidInput
+	}
+	f, e := sessionpg.OriginalSessionFields(x.Session.Session)
+	if e != nil {
+		return identity.Command{}, organization.ErrForbidden
+	}
+	f = append(f, number("version", x.Organization.Version), text("slug", x.Organization.Slug), text("name", x.Organization.Name), number("actor-version", x.Actor.Version), text("actor-role", string(x.Actor.Role)), number("actor-authorization", x.Actor.AuthorizationVersion), number("member-version", x.Target.Version), text("member-role", string(x.Target.Role)), number("member-authorization", x.Target.AuthorizationVersion), number("target-version", x.TargetUser.Version), text("target-status", string(x.TargetUser.Status)), text("role", string(x.Role)), number("maximum-members", x.MaximumMembers), number("maximum-per-user", x.MaximumPerUser), number("maximum-per-tenant", x.MaximumPerTenant), text("session-until", x.Session.ValidUntil().UTC().Format(time.RFC3339Nano)))
+	return identity.NewFeatureSessionCommand(identity.FeatureCommandSpec{Binding: x.Binding, Operation: x.Operation.Descriptor(), Fields: f}, x.Bearer)
+}
+
+func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
+	bad := func() (nativeCommand, error) { return nativeCommand{}, organization.ErrInvalidInput }
+	if p == nil || p.repository == nil {
+		return bad()
+	}
+	s, ok := command.Feature()
+	if !ok {
+		return bad()
+	}
+	op := organization.Operation(s.Binding.OperationID)
+	if s.Operation != op.Descriptor() || s.Operation.Validate() != nil || s.Binding.ActorKind != authorization.SubjectUser || s.Binding.PolicyID != p.config.PolicyID || s.Binding.PolicyVersion != p.config.PolicyVersion {
+		return bad()
+	}
+	values := map[string]identity.FeatureValue{}
+	original := []identity.FeatureField{}
+	for _, f := range s.Fields {
+		if strings.HasPrefix(f.Name, "source-session.") {
+			original = append(original, f)
+		} else if strings.HasPrefix(f.Name, "organization.") {
+			if _, has := values[f.Name]; has {
+				return bad()
+			}
+			values[f.Name] = f.Value
+		} else if !strings.HasPrefix(f.Name, "counter.") {
+			return bad()
+		}
+	}
+	if len(values) != 16 {
+		return bad()
+	}
+	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
+	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	for _, key := range textNames {
+		if values["organization."+key].Kind != identity.FeatureText {
+			return bad()
+		}
+	}
+	for _, key := range numberNames {
+		if values["organization."+key].Kind != identity.FeatureUint64 {
+			return bad()
+		}
+	}
+	t := func(k string) string { return values["organization."+k].Text }
+	n := func(k string) uint64 { return values["organization."+k].Uint64 }
+	if n("maximum-members") != p.config.MaximumMembers || n("maximum-per-user") != p.config.MaximumPerUser || n("maximum-per-tenant") != p.config.MaximumPerTenant {
+		return bad()
+	}
+	record, e := sessionpg.OriginalSessionFromFields(s.Binding.TenantID, identity.UserID(s.Binding.ActorID), original)
+	if e != nil {
+		return bad()
+	}
+	until, e := time.Parse(time.RFC3339Nano, t("session-until"))
+	if e != nil || until.IsZero() || until.UTC().Format(time.RFC3339Nano) != t("session-until") {
+		return bad()
+	}
+	c := nativeCommand{spec: s, operation: op, org: organization.Organization{ID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, Slug: t("slug"), Name: t("name"), Version: n("version"), Active: true}, actor: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: identity.UserID(s.Binding.ActorID), Role: organization.Role(t("actor-role")), Version: n("actor-version"), AuthorizationVersion: n("actor-authorization"), Active: true}, target: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Role: organization.Role(t("member-role")), Version: n("member-version"), AuthorizationVersion: n("member-authorization")}, user: identity.User{ID: s.Binding.UserID, TenantID: s.Binding.TenantID, Version: n("target-version"), Status: identity.Status(t("target-status"))}, role: organization.Role(t("role")), original: record, until: until}
+	if op == organization.Create {
+		if c.org.Version != 0 || c.actor.Version != 0 || c.target.Version != 0 || c.role != organization.RoleOwner || string(s.Binding.ActorID) != string(s.Binding.UserID) || c.user.Version != 0 {
+			return bad()
+		}
+	} else {
+		if c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.user.Validate(s.Binding.TenantID) != nil {
+			return bad()
+		}
+		if op == organization.AddMember && (!c.role.Valid() || c.user.Status != identity.StatusActive || c.role == organization.RoleOwner && c.actor.Role != organization.RoleOwner) {
+			return bad()
+		}
+		if op == organization.RemoveMember && (c.target.Version == 0 || !c.target.Role.Valid() || c.target.AuthorizationVersion == 0 || c.role != "" || c.target.Role == organization.RoleOwner && c.actor.Role != organization.RoleOwner) {
+			return bad()
+		}
+	}
+	return c, nil
+}
+
+func (p *Contributor) ValidateFeatureCommand(command identity.Command, plan kernel.CommandPlan) error {
+	c, e := p.decode(command)
+	if e != nil {
+		return e
+	}
+	event, action := events(c.operation)
+	if plan.Feature == nil || plan.Feature.Contributor != p.Descriptor() || plan.Feature.Operation != c.spec.Operation || plan.SubjectType != "organization" || plan.Lifecycle == nil || plan.Lifecycle.EventType != event || plan.Lifecycle.BeforeVersion != c.org.Version || plan.Lifecycle.AfterVersion != c.org.Version+1 || len(plan.Audits) != 1 || plan.Audits[0].EventType != action || plan.Audits[0].RetentionClass != "protected" || plan.Capability != nil || plan.Delivery != nil || plan.CommandCounters == nil {
+		return organization.ErrInvalidInput
+	}
+	return nil
+}
+
+func events(op organization.Operation) (string, string) {
+	switch op {
+	case organization.Create:
+		return "organization.created.v1", "identity.organization.create"
+	case organization.AddMember:
+		return "membership.created.v1", "identity.organization.add_member"
+	case organization.RemoveMember:
+		return "membership.removed.v1", "identity.organization.remove_member"
+	}
+	return "", ""
+}
+
+func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand, command identity.Command, final bool) error {
+	if ctx == nil || p == nil {
+		return organization.ErrInvalidInput
+	}
+	if _, _, _, e := w.FeatureScope(p); e != nil {
+		return e
+	}
+	if !final {
+		if e := w.RequireFeatureCommand(ctx, p, command); e != nil {
+			return e
+		}
+	}
+	s, e := c.original.Bindings()
+	if e != nil {
+		return identity.ForbiddenError{}
+	}
+	borrowed, ok := command.SessionToken()
+	if !ok {
+		return identity.ForbiddenError{}
+	}
+	token, e := session.ParseToken(borrowed.Token())
+	if e != nil {
+		return identity.ForbiddenError{}
+	}
+	key, ok := p.config.LookupKeys[s.Lookup.KeyVersion]
+	if !ok {
+		return identity.ForbiddenError{}
+	}
+	digest, e := token.Digest(key, string(s.TenantID))
+	if e != nil || digest.KeyVersion != s.Lookup.KeyVersion || subtle.ConstantTimeCompare(digest.Sum[:], s.Lookup.Sum[:]) != 1 {
+		return identity.ForbiddenError{}
+	}
+	b := c.spec.Binding
+	b.UserID = identity.UserID(b.ActorID)
+	d, credential, policy, e := sessionpg.OriginalSessionAdmission(p.config.Profile, c.original, b)
+	if e != nil {
+		return identity.ForbiddenError{}
+	}
+	if e = w.RequireActiveDirectoryAuthority(ctx, p, d); e != nil {
+		return e
+	}
+	if !final && c.operation == organization.AddMember {
+		// The existing identity owner fences the exact target; organization
+		// never copies identity SQL or invents target security epochs.
+		if e = w.RequireActiveTargetUser(ctx, p, c.user); e != nil {
+			return e
+		}
+	}
+	if _, e = w.RequireActiveActorCredential(ctx, p, credential); e != nil {
+		return e
+	}
+	if e = w.RequireActiveActorAuthorization(ctx, p, policy); e != nil {
+		return e
+	}
+	if e = sessionpg.RequireSession(ctx, w, p.config.Session, c.original); e != nil {
+		return e
+	}
+	now, e := w.DatabaseTime(ctx)
+	if e != nil {
+		return e
+	}
+	if !now.Before(c.until) || c.until.After(now.Add(20*time.Second)) {
+		return identity.ForbiddenError{}
+	}
+	return nil
+}
+
+// OrganizationAuthorityScope binds target authorization to one organization,
+// not the session/global user namespace. The length-framed, domain-separated
+// digest keeps a full canonical 128-byte organization ID inside the owner's
+// bounded namespace. It supplies no authority or freshness on its own.
+func OrganizationAuthorityScope(tenant identity.TenantID, org organization.ID, user identity.UserID) (authority.AuthorityScope, error) {
+	if !scope(string(tenant)) || !scope(string(org)) || !scope(string(user)) {
+		return authority.AuthorityScope{}, organization.ErrInvalidInput
+	}
+	h := sha256.Sum256([]byte("golib.organization.authorization.v1\x00" + strconv.Itoa(len(org)) + ":" + string(org)))
+	return authority.AuthorityScope{TenantID: authorization.TenantID(tenant), PolicyNamespace: "organization-v1-" + hex.EncodeToString(h[:]), SubjectID: authorization.SubjectID(user)}, nil
+}
+
+func (p *Contributor) CheckFeatureCommit(ctx context.Context, w kernel.Work, command identity.Command) error {
+	c, e := p.decode(command)
+	if e != nil {
+		return e
+	}
+	return p.admit(ctx, w, c, command, true)
+}

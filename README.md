@@ -3,15 +3,14 @@
 > **Status: experimental.** Only the explicit-organization membership profile
 > below is implemented. This is not a stable release or complete organization unit.
 
-`go-organization` supplies storage-neutral organization policy and immutable
-transaction handoff for organization creation and membership admission, listing
-and removal with last-owner protection. The root API is an adapter prerequisite;
-the native PostgreSQL implementation is delivered separately. The root alone
-does not supply durable organization operations.
+`go-organization` supplies storage-neutral organization policy and a
+[native PostgreSQL adapter](postgres/README.md). The selected profile creates
+organizations, admits existing active users, lists members and removes members
+while protecting the last owner.
 
 ## API and selection
 
-The native PostgreSQL service supplies durable operations. The root `Service`
+Use the native `postgres.Service` for durable operations. The root `Service`
 owns real session authentication, external policy, validation and immutable
 command preparation. Its `Repository` and exact `UnitOfWork.Execute`/`Recover`
 contracts are adapter boundaries, not application workflow instructions.
@@ -79,7 +78,7 @@ cardinality and last-owner invariants. This profile makes no throughput claim.
 ## Planning and verification
 
 The [repository goal](docs/goal.md) describes the full later unit, not current
-completion. `modules.json` records the experimental root prerequisite.
+completion. `modules.json` records the experimental root and optional adapter.
 Full platform composition and release qualification remain pending.
 
 See the [security boundary](docs/security.md), [release notes](CHANGELOG.md), and
