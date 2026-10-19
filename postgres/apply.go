@@ -282,6 +282,17 @@ func (p *Contributor) mutateMember(ctx context.Context, w kernel.Work, c nativeC
 		if c.role == organization.RoleOwner {
 			ownerDelta = 1
 		}
+	} else if c.operation == organization.UpdateMember {
+		// Owners are the selected static profile's recovery administrators
+		// (docs/member-leave.md). The shared aggregate lock/count protects this
+		// invariant against role updates, removal, leave and owner transfer.
+		delta = 0
+		if target.Role == organization.RoleOwner {
+			ownerDelta--
+		}
+		if c.role == organization.RoleOwner {
+			ownerDelta++
+		}
 	} else {
 		delta = -1
 		if target.Role == organization.RoleOwner {
@@ -297,6 +308,8 @@ func (p *Contributor) mutateMember(ctx context.Context, w kernel.Work, c nativeC
 	}
 	if c.operation == organization.AddMember {
 		n, e = w.Exec(ctx, `INSERT INTO organization.memberships(tenant_id,organization_id,user_id,role,state,version,authorization_version) VALUES($1,$2,$3,$4,'active',$5::numeric,$6::numeric) ON CONFLICT(tenant_id,organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,state='active',version=EXCLUDED.version,authorization_version=EXCLUDED.authorization_version WHERE organization.memberships.state='removed' AND organization.memberships.version=$7::numeric`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(target.Version+1, 10), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
+	} else if c.operation == organization.UpdateMember {
+		n, e = w.Exec(ctx, `UPDATE organization.memberships SET role=$4,version=version+1,authorization_version=$5::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$6::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
 	} else {
 		n, e = w.Exec(ctx, `UPDATE organization.memberships SET state='removed',version=version+1,authorization_version=$4::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$5::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
 	}

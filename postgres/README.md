@@ -56,6 +56,19 @@ outcome and may return a nil error.
 
 ## Persistence and concurrency
 
+`PrepareUpdateMember(ctx, organization.MemberRequest, trustedCanonicalClientIP)`
+changes one exact active membership's static role. Current owners/administrators
+can manage nonowners; only owners may grant or demote owners. The last owner
+(this profile's recovery administrator) cannot be demoted. Membership and scoped
+subject authority each advance once, and the organization policy epoch advances
+once; counts and required protected audit/lifecycle commit in the same existing
+Coordinator transaction. No new migration is required. Current reads and native
+management operations use the new role; no dynamic permission engine is selected.
+Preserve the original prepared command and safe recovery binding. Exact
+self-demotion history follows current membership/action/query admission, not
+renewed manager privilege; other-target history retains current owner/admin
+admission. See [static role updates](../docs/member-role-update.md).
+
 `PrepareLeaveMember(ctx, organization.LeaveRequest, trustedCanonicalClientIP)`
 uses the same coordinator and tombstone mutation as removal with its distinct
 self-only `identity.organization.member.leave` command/policy. It advances the

@@ -158,6 +158,10 @@ func TestOrganizationGenuineInvitationExpiryConsumer(t *testing.T) {
 	exerciseGenuinePasswordConsumer(t, "expire")
 }
 
+func TestOrganizationGenuineMemberRoleUpdateConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "member-role")
+}
+
 func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	ctx, pool, db := consumerDatabase(t)
 	keyNames := []string{"fingerprint", "request", "counter", "risk-evidence", "risk-seal", "preauth-cookie", "session-token", "session-csrf", "http-device", "delivery-envelope", "dummy-password", "capability-binding", "capability-signing", "signin-proof", "migration", "counter-replay", "http-rate", "otp-lockout", "otp-wrap", "otp-attempt", "otp-code", "otp-intent", "identifier", "delivery-digest", "delivery-namespace", "password-flow", "signup-binding", "signup-intent", "verification-scope", "capability-replay", "capability-envelope", "counter-envelope", "verification-http"}
@@ -420,6 +424,12 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	recoveryOwner := owner
 	trackOwnerSignin := func() organization.Authentication { recoveryOwner = signinOwner(); return recoveryOwner }
+	if invitationProfile == "member-role" {
+		exerciseGenuineMemberRoleUpdate(t, ctx, pool, service, sessions, owner, member, ownerID, memberID, signinRecipient, trackOwnerSignin, func(p *database.Pool) *organizationpg.Service {
+			return consumerOrganizationService(t, p, sessions, profile, lookup, keys, material)
+		})
+		return
+	}
 	if invitationProfile != "existing" {
 		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile)
 		return

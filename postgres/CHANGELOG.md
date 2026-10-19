@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native static member-role updates with atomic organization/member/scoped
+  authority versions, canonical protected audit/lifecycle and exact recovery.
+  Existing schemas suffice. Self-demotion history requires current membership
+  and policy; other-target history still requires current management authority.
+
 - Add native explicit invitation expiry, atomic canonical audit/event and
   reason custody, acceptance exclusion and original-command recovery. Install
   InvitationExpiryMigrationSource after rejection and use the risk owner's

@@ -71,7 +71,7 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.membership", Version: 1}
 }
 func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
-	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
+	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.UpdateMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
 	if p != nil && p.config.OwnerTransferPrimary != nil {
 		ops = append(ops, organization.OwnerTransfer.Descriptor())
 	}
@@ -282,6 +282,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		if op == organization.RemoveMember && (c.target.Version == 0 || !c.target.Role.Valid() || c.target.AuthorizationVersion == 0 || c.role != "" || c.target.Role == organization.RoleOwner && c.actor.Role != organization.RoleOwner) {
 			return bad()
 		}
+		if op == organization.UpdateMember && (c.target.Version == 0 || c.target.Version == ^uint64(0) || !c.target.Role.Valid() || c.target.AuthorizationVersion == 0 || !c.role.Valid() || c.role == c.target.Role || c.user.Status != identity.StatusActive || (c.target.Role == organization.RoleOwner || c.role == organization.RoleOwner) && c.actor.Role != organization.RoleOwner) {
+			return bad()
+		}
 		if op == organization.OwnerTransfer && (p.config.OwnerTransferPrimary == nil || c.actor.Role != organization.RoleOwner || c.actor.Version == ^uint64(0) || c.target.Version == 0 || c.target.Version == ^uint64(0) || !c.target.Role.Valid() || c.target.Role == organization.RoleOwner || c.target.AuthorizationVersion == 0 || c.role != organization.RoleMember || c.user.Status != identity.StatusActive || string(s.Binding.ActorID) == string(s.Binding.UserID)) {
 			return bad()
 		}
@@ -309,6 +312,8 @@ func events(op organization.Operation) (string, string) {
 		return "organization.updated.v1", "identity.organization.update"
 	case organization.AddMember:
 		return "membership.created.v1", "identity.organization.add_member"
+	case organization.UpdateMember:
+		return "membership.role_changed.v1", "identity.organization.change_member_role"
 	case organization.RemoveMember, organization.LeaveMember:
 		// SECURITY_EVENTS declares the protected membership-removal effect.
 		// Callable leave keeps its own self-only command and policy identity.
@@ -392,14 +397,14 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 	// Kernel RequireEmailRemovalSubjects acquires both user rows FOR UPDATE
 	// ORDER BY user_id. Our SHARE locks commute with each other, but retaining
 	// the later user while waiting for the first would deadlock with that owner.
-	// Order the existing kernel admissions for transfer only; keep legacy paths.
-	actorFirst := c.operation == organization.OwnerTransfer && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
+	// Order transfer and role-update's two-user admissions; keep legacy paths.
+	actorFirst := (c.operation == organization.OwnerTransfer || c.operation == organization.UpdateMember) && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
 	if actorFirst {
 		if _, e = w.RequireActiveActorCredential(ctx, p, credential); e != nil {
 			return e
 		}
 	}
-	if !final && (c.operation == organization.AddMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer) {
+	if !final && (c.operation == organization.AddMember || c.operation == organization.UpdateMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer) {
 		// The existing identity owner fences the exact target; organization
 		// never copies identity SQL or invents target security epochs.
 		if e = w.RequireActiveTargetUser(ctx, p, c.user); e != nil {

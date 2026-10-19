@@ -142,6 +142,21 @@ func (s *Service) PrepareAddMember(ctx context.Context, r organization.MemberReq
 	return s.prepare(ctx, c, network)
 }
 
+// PrepareUpdateMember authenticates the current owner/administrator and freezes
+// an exact active membership's static role/version change with native privileged
+// admission. Execute atomically advances membership, scoped authority and the
+// organization policy epoch with required protected audit and lifecycle effects.
+func (s *Service) PrepareUpdateMember(ctx context.Context, r organization.MemberRequest, network string) (PreparedCommand, error) {
+	if s == nil {
+		return PreparedCommand{}, organization.ErrInvalidInput
+	}
+	c, err := s.core.PrepareUpdateMember(ctx, r)
+	if err != nil {
+		return PreparedCommand{}, err
+	}
+	return s.prepare(ctx, c, network)
+}
+
 // PrepareUpdate freezes a bounded Name/Slug replacement with current owner or
 // administrator admission, the expected organization version and native
 // privileged counters. Execute performs the sole durable attempt; Recover
@@ -326,7 +341,7 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 			return organization.StoreResult{}, readErr
 		}
 		admission = view
-		if op == organization.Update || op == organization.OwnerTransfer || isTeamMutation(op) {
+		if op == organization.Update || op == organization.UpdateMember || op == organization.OwnerTransfer || isTeamMutation(op) {
 			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
 				return organization.StoreResult{}, e
 			}
@@ -340,6 +355,8 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 // Historical disclosure is not a mutation grant. A successful owner transfer
 // demotes its original actor to member, so its exact metadata-only recovery
 // requires current membership and action policy, not renewed owner authority.
+// An exact self-role change has the same disclosure rule after self-demotion;
+// it never grants access to another target's history or mutation authority.
 // Other management outcomes retain their current owner/administrator requirement.
 func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.CommandBinding, view organization.View) (err error) {
 	defer func() {
@@ -347,7 +364,8 @@ func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.Comman
 			err = organization.ErrUnavailable
 		}
 	}()
-	if organization.Operation(b.OperationID) != organization.OwnerTransfer && view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
+	selfRoleHistory := organization.Operation(b.OperationID) == organization.UpdateMember && b.UserID == identity.UserID(b.ActorID)
+	if organization.Operation(b.OperationID) != organization.OwnerTransfer && !selfRoleHistory && view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
 		return organization.ErrForbidden
 	}
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(b.RecordID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(view.Organization.Version, 10))}}, Tenant: authorization.TenantID(b.TenantID), Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
@@ -447,6 +465,16 @@ func (u *unitOfWork) Execute(ctx context.Context, c organization.Command) (organ
 	s, p := u.service, u.prepared
 	reservation, receipt, e := s.config.Coordinator.ReserveCommand(ctx, p.binding, p.native, p.plan)
 	if e != nil || reservation == (kernel.Reservation{}) {
+		if p.binding.OperationID == string(organization.UpdateMember) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
+			// Terminal replay skips Apply's protected admission. Use current
+			// session/membership/action/query authority for historical disclosure,
+			// including self-demotion, never the old manager role as a lease.
+			x, err := c.Input()
+			if err != nil {
+				return organization.StoreResult{}, err
+			}
+			return s.Recover(ctx, organization.Authentication{TenantID: p.binding.TenantID, Bearer: x.Bearer}, Recovery{Binding: p.binding})
+		}
 		return mutationResult(p.binding, receipt), e
 	}
 	w, e := s.config.Coordinator.Begin(ctx, reservation)
