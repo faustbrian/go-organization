@@ -12,6 +12,15 @@ while protecting the last owner.
 
 ## API and selection
 
+`InvitationService.PrepareExpire` selects the current owner/administrator and an
+exact pending invitation/version with a reason from configured
+`InvitationConfig.ExpirationReasons`. An empty registry leaves expiry disabled.
+Explicit expiry can precede the natural deadline or terminalize an elapsed
+pending row: `InvitationExpired` at version1 is only a natural projection;
+version2 is a durable terminal effect that prevents every prior proof from
+authorizing acceptance. See the adapter's
+[schema and recovery requirements](postgres/README.md#explicit-invitation-expiry).
+
 `InvitationService.PrepareReject` admits only the authenticated intended verified
 recipient of an exact pending invitation, using original organization/invitation
 versions without membership or an invitation proof. The native adapter atomically
@@ -149,8 +158,8 @@ original command; metadata recovery requires current management authority.
 `ListMine(InvitationListMineRequest)` is a distinct current-recipient read,
 without organization membership or administrator permission. It returns only
 safe `Invitation` values bound to the authenticated human and an exact current
-verified email identifier ID/version. Pending, accepted and cancelled records
-are visible; pending records project expired at their exclusive deadline. Old
+verified email identifier ID/version. Every supported lifecycle state is
+visible; pending records project expired at their exclusive deadline. Old
 identifier versions, removed or unverified identifiers are not historical access
 grants. No delivery status, address, capability or ciphertext is returned.
 

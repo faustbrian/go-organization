@@ -3,6 +3,7 @@ package organization
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ const (
 	InvitationAccept Operation = "identity.organization.invitation.accept"
 	InvitationCancel Operation = "identity.organization.invitation.cancel"
 	InvitationReject Operation = "identity.organization.invitation.reject"
+	InvitationExpire Operation = "identity.organization.invitation.expire"
 	InvitationGet    Operation = "identity.organization.invitation.get"
 	InvitationList   Operation = "identity.organization.invitation.list"
 )
@@ -32,6 +34,8 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 		schema = "organization-invitation-cancel"
 	case InvitationReject:
 		schema = "organization-invitation-reject"
+	case InvitationExpire:
+		schema = "organization-invitation-expire"
 	default:
 		return identity.FeatureOperation{}
 	}
@@ -39,9 +43,9 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 }
 
 // InvitationStatus describes the selected durable lifecycle. Zero is invalid.
-// Expired is a non-authorizing projection of exclusive expiry, not an exposed
-// expire/resend command. Accepted, cancelled and rejected records never become
-// pending again.
+// Expired version1 is a non-authorizing natural-deadline projection; expired
+// version2 is an explicit durable terminal transition. No terminal state can
+// become pending again.
 type InvitationStatus uint8
 
 const (
@@ -137,7 +141,8 @@ type InvitationVerifier interface {
 	Verify(context.Context, capability.Proof, capability.Purpose, string) (capability.Grant, error)
 }
 
-// InvitationConfig selects owner-send/member-accept and administrator cancellation
+// InvitationConfig selects owner-send/member-accept, recipient rejection and
+// administrator cancellation/registered expiry
 // for existing verified
 // email recipients. Lifetime follows reference bounds15m..30d; MaximumPending
 // follows1..10000. Zero is invalid. The composition selects48h/100 explicitly,
@@ -147,6 +152,10 @@ type InvitationConfig struct {
 	Audience       string
 	Lifetime       time.Duration
 	MaximumPending uint64
+	// ExpirationReasons enables explicit expiry for these registered, non-secret
+	// codes only. Empty disables expiry, preserving existing profiles. At most
+	// 32 unique 1..64-byte codes are accepted and copied at construction.
+	ExpirationReasons []identity.PolicyReason
 }
 
 // InvitationService borrows the existing root service/session/policy and
@@ -167,6 +176,15 @@ func NewInvitationService(base *Service, repository InvitationRepository, verifi
 		return nil, ErrInvalidInput
 	}
 	c.Audience = strings.Clone(c.Audience)
+	if len(c.ExpirationReasons) > 32 {
+		return nil, ErrInvalidInput
+	}
+	for n, reason := range c.ExpirationReasons {
+		if !safeID(string(reason)) || len(reason) > 64 || slices.Contains(c.ExpirationReasons[:n], reason) {
+			return nil, ErrInvalidInput
+		}
+	}
+	c.ExpirationReasons = slices.Clone(c.ExpirationReasons)
 	return &InvitationService{base: base, repository: repository, verifier: verifier, config: c}, nil
 }
 
@@ -192,6 +210,7 @@ type InvitationInput struct {
 	RecipientIdentifier identity.Identifier
 	MaximumPending      uint64
 	Proof               capability.Proof
+	ExpirationReason    identity.PolicyReason
 }
 
 func (InvitationInput) Format(s fmt.State, _ rune) {
@@ -362,7 +381,7 @@ func (s *InvitationService) PrepareAccept(ctx context.Context, r InvitationAccep
 }
 
 func validInvitation(i Invitation, tenant identity.TenantID, org ID) bool {
-	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled || i.Status == InvitationRejected) && i.Version == 2
+	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled || i.Status == InvitationRejected || i.Status == InvitationExpired) && i.Version == 2
 	return safeID(string(i.ID)) && i.TenantID == tenant && i.OrganizationID == org && safeID(string(i.RecipientUserID)) && safeID(string(i.RecipientIdentifierID)) && i.RecipientIdentifierVersion > 0 && safeID(string(i.CreatedBy)) && i.Role == RoleMember && versionValid && !i.ExpiresAt.IsZero() && i.ExpiresAt.Equal(i.ExpiresAt.UTC().Truncate(time.Second))
 }
 

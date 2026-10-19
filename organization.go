@@ -540,7 +540,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	attempted = true
 	out, err = work.Execute(bounded, c)
 	before := x.Organization.Version
-	if x.Operation == InvitationSend || x.Operation == InvitationAccept || x.Operation == InvitationCancel || x.Operation == InvitationReject {
+	if x.Operation == InvitationSend || x.Operation == InvitationAccept || x.Operation == InvitationCancel || x.Operation == InvitationReject || x.Operation == InvitationExpire {
 		// The sole native receipt describes its invitation aggregate. Acceptance
 		// also creates a membership, but must not relabel that second event or
 		// unrelated organization policy epoch as the invitation transition.

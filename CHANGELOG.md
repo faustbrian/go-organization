@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add owner/administrator invitation expiry with exact versions and registered
+  reason codes. Explicit expired version2 is terminal and distinct from natural
+  deadline projection at version1; prior invitation APIs remain unchanged.
+
 - Add exact-version invitation rejection for the authenticated intended verified
   recipient without membership or invitation proof, with terminal rejected metadata.
 
