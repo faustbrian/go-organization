@@ -34,12 +34,12 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 	if members < 1 || owners < 1 || owners > members {
 		return 0, identity.UnavailableError{}
 	}
-	if x.Operation == organization.InvitationSend || x.Operation == organization.InvitationCancel {
+	if x.Operation == organization.InvitationSend || x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		actor, err := readMember(ctx, w, b.TenantID, x.Organization.ID, identity.UserID(b.ActorID))
 		if err != nil {
 			return 0, err
 		}
-		if !actor.Active || actor.Role != x.Actor.Role || actor.Role != organization.RoleOwner && (x.Operation != organization.InvitationCancel || actor.Role != organization.RoleAdministrator) || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
+		if !actor.Active || actor.Role != x.Actor.Role || actor.Role != organization.RoleOwner && ((x.Operation != organization.InvitationCancel && x.Operation != organization.InvitationExpire) || actor.Role != organization.RoleAdministrator) || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
 			return 0, identity.ForbiddenError{}
 		}
 		scope, err := OrganizationAuthorityScope(b.TenantID, x.Organization.ID, actor.UserID)
@@ -49,7 +49,7 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 		if err = authority.RequireAuthority(ctx, w, scope, actor.AuthorizationVersion, p.service.actor.config.Session.MaximumDuration); err != nil {
 			return 0, authorityError(err)
 		}
-		if x.Operation == organization.InvitationCancel {
+		if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 			return members, nil
 		}
 	}
@@ -125,6 +125,8 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		err = p.cancel(ctx, w)
 	} else if x.Operation == organization.InvitationReject {
 		err = p.reject(ctx, w)
+	} else if x.Operation == organization.InvitationExpire {
+		err = p.expire(ctx, w)
 	} else {
 		err = p.accept(ctx, w, members)
 	}
@@ -140,6 +142,21 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		return identity.FeatureReceipt{}, err
 	}
 	return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, nil
+}
+
+func (p *invitationPhase) expire(ctx context.Context, w kernel.Work) error {
+	i := p.input.Invitation.Record
+	// API_OPERATIONS declares explicit expiry of a pending row, not merely an
+	// elapsed-deadline projection. The shared pending/version fence revokes all
+	// old grants and serializes acceptance without touching membership authority.
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='expired',version=2,expired_at=clock_timestamp(),expiry_reason=$10 WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy), string(p.input.Invitation.ExpirationReason))
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
 }
 
 func (p *invitationPhase) reject(ctx context.Context, w kernel.Work) error {

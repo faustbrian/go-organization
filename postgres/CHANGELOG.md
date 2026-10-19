@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native explicit invitation expiry, atomic canonical audit/event and
+  reason custody, acceptance exclusion and original-command recovery. Install
+  InvitationExpiryMigrationSource after rejection and use the risk owner's
+  privileged expiry profile before enabling it; unsupported risk profiles deny.
+
 - Add native recipient invitation rejection with atomic terminal version,
   canonical audit/outbox effects and proof-free original-command recovery.
   Install InvitationRejectionMigrationSource after the cancellation migration

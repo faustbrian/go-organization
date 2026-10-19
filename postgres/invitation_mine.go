@@ -78,6 +78,8 @@ func (r *InvitationRepository) ReadInvitationsMine(ctx context.Context, q organi
 			item.Status = organization.InvitationCancelled
 		case "rejected":
 			item.Status = organization.InvitationRejected
+		case "expired":
+			item.Status = organization.InvitationExpired
 		default:
 			return organization.InvitationListMineSnapshot{}, organization.ErrUnavailable
 		}

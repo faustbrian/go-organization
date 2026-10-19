@@ -41,7 +41,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	}
 	b := recovery.Binding
 	op := organization.Operation(b.OperationID)
-	if (op != organization.InvitationSend && op != organization.InvitationAccept && op != organization.InvitationCancel && op != organization.InvitationReject) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
+	if (op != organization.InvitationSend && op != organization.InvitationAccept && op != organization.InvitationCancel && op != organization.InvitationReject && op != organization.InvitationExpire) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	x := organization.CommandInput{Binding: b, Operation: op, Organization: organization.Organization{ID: recovery.OrganizationID}, Invitation: organization.InvitationInput{Record: organization.Invitation{ID: organization.ID(b.RecordID)}}}
@@ -82,7 +82,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	var cancellation *recoveryInput
 	var rejection *organization.InvitationSnapshot
 	query := identity.RecoveryQuery{CommandID: b.CommandID, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
-	if x.Operation == organization.InvitationCancel {
+	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		if b.UserID != actor.UserID {
 			return organization.StoreResult{}, organization.ErrForbidden
 		}
@@ -205,7 +205,7 @@ func (s *InvitationService) recoverPrepared(ctx context.Context, p *invitationPh
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	result, err := s.Recover(ctx, organization.Authentication{TenantID: p.input.Binding.TenantID, Bearer: p.input.Bearer}, InvitationRecovery{Binding: p.input.Binding, OrganizationID: p.input.Organization.ID})
-	if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject) && p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
+	if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire) && p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	return result, err

@@ -179,8 +179,39 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend/explicit-expire and other full-goal
-profiles remain unimplemented.
+Resend and other full-goal profiles remain unimplemented.
+
+### Explicit invitation expiry
+
+Install `InvitationExpiryMigrationSource` at an unused permanent version after
+the rejection migration. It preserves installed migration bytes, existing
+rows/custody and original natural deadlines. Earlier readers fail closed on
+the new stored terminal state. Select bounded, unique registered non-secret
+codes in `InvitationConfig.ExpirationReasons`; empty configuration keeps expiry
+disabled. The risk owner must supply the canonical privileged expiry profile:
+an unsupported or default-deny classification is not bypassed by this adapter.
+
+`PrepareExpire` requires a current genuine owner/administrator, exact
+organization/invitation versions and a registered reason. Recipient credentials
+and invitation proofs confer no administrative authority. Explicit expiry may
+close a live invitation early or terminalize a still-pending elapsed row. Safe
+metadata uses `InvitationExpired` version2 for the committed terminal state;
+the pre-existing natural-deadline projection remains version1 and performs no
+write. `ExpiresAt` always retains the original natural deadline.
+
+One existing-coordinator commit stores terminal state/version, reason, canonical
+`identity.organization.expire_invitation` audit (standard retention),
+`invitation.expired.v1` event and command effect. The pending-row fence is shared
+with acceptance, so every outstanding old proof loses authority without changing
+membership or organization epochs. Audit/outbox failure rolls the terminal
+effect back. This neither recalls delivery nor rotates or reissues any proof.
+
+Retain the original `PreparedInvitation` for exact keyed retries; changed reason
+is changed command intent. Persist its safe `Recovery()` handle before execution.
+After an unknown COMMIT, `Recover` authenticates the original current
+owner/administrator and rechecks native session/member/scoped authority after
+disclosure callbacks. No original proof, regenerated command or second journal
+is needed. Terminal expiry does not restore authority after the natural deadline.
 
 ### Recipient invitation rejection
 
@@ -206,7 +237,7 @@ Retain the original `PreparedInvitation` for keyed retries and persist its safe
 `Recovery()` handle before execution. An unknown COMMIT response must be resolved
 through `Recover` with a current genuine recipient session, without a proof,
 new command ID or reissue. Listing/get surfaces return only safe terminal
-metadata. Rejection does not introduce resend, explicit expiry or delivery recall.
+metadata. Rejection itself does not resend, explicitly expire or recall delivery.
 
 ### Pending invitation cancellation
 
@@ -252,7 +283,7 @@ email identifiers through the native directory owner, and evaluates current
 self-list policy on `identity.user`. It does not require organization membership
 or reuse administrator `Get`/`List` or delivery-status authority.
 
-All retained pending, accepted, cancelled and rejected invitations with the exact current
+All retained invitations in supported lifecycle states with the exact current
 recipient user and verified identifier ID/version are visible; pending records
 project expired at exclusive expiry. Removed, unverified or superseded identifier
 versions cannot reveal historical invitations. Organization membership and retained

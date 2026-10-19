@@ -48,7 +48,8 @@ type InvitationDeliveryConfig struct {
 // kernel with actual capability, audit, risk and paired-lifecycle owners.
 // Session/issuer/envelope keys and borrowed owners must outlive pending work.
 // Install membership, invitation-read, invitation-capability and (for cancel)
-// invitation-cancellation and (for reject) invitation-rejection migrations plus
+// invitation-cancellation, (for reject) invitation-rejection and (for expire)
+// invitation-expiry migrations plus
 // all selected shared owner migrations before invoking this service.
 type InvitationServiceConfig struct {
 	Core          organization.Config
@@ -73,7 +74,7 @@ func (InvitationServiceConfig) MarshalText() ([]byte, error) {
 	return nil, organization.ErrSensitiveSerialization
 }
 
-// InvitationService owns native send/accept/cancel/reject composition, never another token
+// InvitationService owns native invitation composition, never another token
 // engine, journal, provider or authentication authority. It starts no goroutine.
 // Configuration is immutable; independent preparations may run concurrently,
 // while each PreparedInvitation is serial-use and preserves original custody.
@@ -147,6 +148,7 @@ func NewInvitationService(repository *Repository, c InvitationServiceConfig) (*I
 		return nil, err
 	}
 	c.Admission = actor.config
+	c.Invitation.ExpirationReasons = slices.Clone(c.Invitation.ExpirationReasons)
 	c.Delivery.LocaleChain = slices.Clone(c.Delivery.LocaleChain)
 	c.Coordinator.RetainedFingerprintKeys = cloneInvitationFingerprintKeys(c.Coordinator.RetainedFingerprintKeys)
 	if c.Coordinator.QueryPolicy != nil {
@@ -263,6 +265,21 @@ func (s *InvitationService) PrepareReject(ctx context.Context, r organization.In
 	return s.prepare(ctx, c, network)
 }
 
+// PrepareExpire freezes the current owner/administrator, exact pending row and
+// registered reason. It needs no recipient proof and makes no provider call.
+// Install InvitationExpiryMigrationSource before execution. The actual risk
+// owner must classify expiry as Privileged; an unsupported profile fails closed.
+func (s *InvitationService) PrepareExpire(ctx context.Context, r organization.InvitationExpireRequest, network string) (PreparedInvitation, error) {
+	if s == nil {
+		return PreparedInvitation{}, organization.ErrInvalidInput
+	}
+	c, err := s.root.PrepareExpire(ctx, r)
+	if err != nil {
+		return PreparedInvitation{}, err
+	}
+	return s.prepare(ctx, c, network)
+}
+
 func (s *InvitationService) prepare(ctx context.Context, c organization.Command, network string) (PreparedInvitation, error) {
 	if ctx == nil {
 		return PreparedInvitation{}, organization.ErrInvalidInput
@@ -286,7 +303,7 @@ func (s *InvitationService) prepare(ctx context.Context, c organization.Command,
 		return PreparedInvitation{}, organization.ErrForbidden
 	}
 	p.occurred = at.UTC()
-	if x.Operation != organization.InvitationCancel {
+	if x.Operation != organization.InvitationCancel && x.Operation != organization.InvitationExpire {
 		p.recipient, err = s.repository.resolveRecipient(bounded, x.Binding.TenantID, x.Binding.UserID, x.Invitation.Record.RecipientIdentifierID)
 		if err != nil {
 			return PreparedInvitation{}, err

@@ -42,7 +42,7 @@ func (*invitationPhase) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.invitation", Version: 1}
 }
 func (*invitationPhase) FeatureOperations() []identity.FeatureOperation {
-	return []identity.FeatureOperation{organization.InvitationSend.Descriptor(), organization.InvitationAccept.Descriptor(), organization.InvitationCancel.Descriptor(), organization.InvitationReject.Descriptor()}
+	return []identity.FeatureOperation{organization.InvitationSend.Descriptor(), organization.InvitationAccept.Descriptor(), organization.InvitationCancel.Descriptor(), organization.InvitationReject.Descriptor(), organization.InvitationExpire.Descriptor()}
 }
 
 func (p *invitationPhase) mapCommand() error {
@@ -53,10 +53,13 @@ func (p *invitationPhase) mapCommand() error {
 	}
 	i := x.Invitation.Record
 	f = append(f, text("id", string(x.Organization.ID)), number("version", x.Organization.Version), number("actor-version", x.Actor.Version), text("actor-role", string(x.Actor.Role)), number("actor-authorization", x.Actor.AuthorizationVersion), number("member-version", x.Target.Version), text("member-role", string(x.Target.Role)), number("member-authorization", x.Target.AuthorizationVersion), number("target-version", x.TargetUser.Version), text("target-status", string(x.TargetUser.Status)), text("role", string(i.Role)), number("maximum-members", x.MaximumMembers), number("maximum-per-user", x.MaximumPerUser), number("maximum-per-tenant", x.MaximumPerTenant), number("maximum-pending", x.Invitation.MaximumPending), number("invitation-version", i.Version), text("recipient-identifier", string(i.RecipientIdentifierID)), number("recipient-identifier-version", i.RecipientIdentifierVersion), identity.FeatureField{Name: "organization.invitation-expires-at", Value: identity.FeatureValue{Kind: identity.FeatureTime, Time: i.ExpiresAt}}, text("session-until", x.Session.ValidUntil().UTC().Format(time.RFC3339Nano)))
-	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationReject {
+	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationReject || x.Operation == organization.InvitationExpire {
 		// Terminal withdrawals retain the invitation's historical recipient and
 		// creator in keyed identity without changing legacy send/accept bytes.
 		f = append(f, text("invitation-recipient", string(i.RecipientUserID)), text("invitation-created-by", string(i.CreatedBy)))
+	}
+	if x.Operation == organization.InvitationExpire {
+		f = append(f, text("expiry-reason", string(x.Invitation.ExpirationReason)))
 	}
 	p.command, err = identity.NewFeatureSessionCommand(identity.FeatureCommandSpec{Binding: x.Binding, Operation: x.Operation.Descriptor(), Fields: f}, x.Bearer)
 	return err
@@ -107,6 +110,9 @@ func (p *invitationPhase) compose() error {
 	return err
 }
 func (p *invitationPhase) lifecycle() (string, string) {
+	if p.input.Operation == organization.InvitationExpire {
+		return "invitation.expired.v1", "identity.organization.expire_invitation"
+	}
 	if p.input.Operation == organization.InvitationReject {
 		return "invitation.rejected.v1", "identity.organization.reject_invitation"
 	}
@@ -119,9 +125,9 @@ func (p *invitationPhase) lifecycle() (string, string) {
 	return "invitation.accepted.v1", "identity.organization.accept_invitation"
 }
 func (p *invitationPhase) retention() string {
-	// SECURITY_EVENTS selects standard retention for cancel/reject; historical
+	// SECURITY_EVENTS selects standard retention for withdrawals; historical
 	// send/accept profiles retain their installed protected classification.
-	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject {
+	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire {
 		return "standard"
 	}
 	return "protected"
@@ -153,7 +159,7 @@ func (p *invitationPhase) plan(final bool) (kernel.CommandPlan, error) {
 		}
 	}
 	plan := kernel.CommandPlan{Contributors: contributors, Feature: &kernel.FeatureRegistration{Contributor: p.Descriptor(), Operation: spec.Operation}, SubjectType: "invitation", Lifecycle: &kernel.LifecyclePlan{EventType: event, BeforeVersion: v, AfterVersion: v + 1}, CommandCounters: &p.counters, Audits: []kernel.AuditPlan{{EventType: action, SchemaVersion: 1, Required: true, RequiredRecordCount: 1, MaxRecordBytes: 16384, MaxAggregateBytes: 16384, RetentionPolicyVersion: 1, RetentionClass: p.retention(), BindingDigest: digest}}}
-	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject {
+	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire {
 		return p.coordinator.PrepareCommandPlan(b, p.command, plan)
 	}
 	if p.input.Operation == organization.InvitationAccept {
@@ -195,7 +201,7 @@ func (p *invitationPhase) ValidateFeatureCommand(c identity.Command, plan kernel
 		if plan.Capability != nil || plan.OrganizationInvitationOrigin == nil || *plan.OrganizationInvitationOrigin != origin {
 			return identity.InvalidInputError{Field: "invitation"}
 		}
-	} else if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject {
+	} else if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire {
 		if plan.Capability != nil || plan.CapabilityIssuance != nil || plan.Delivery != nil || plan.OrganizationInvitationOrigin != nil {
 			return identity.InvalidInputError{Field: "invitation"}
 		}
@@ -279,7 +285,7 @@ func (p *invitationPhase) admit(ctx context.Context, w kernel.Work, final bool) 
 	if err = sessionpg.RequireSession(ctx, w, p.service.actor.config.Session, x.Session.Session); err != nil {
 		return err
 	}
-	if x.Operation == organization.InvitationCancel {
+	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		// Withdrawing an invitation must remain possible after recipient email
 		// removal/suspension; only the authenticated administrator is admitted.
 	} else if !final && x.Operation == organization.InvitationSend {
@@ -294,7 +300,9 @@ func (p *invitationPhase) admit(ctx context.Context, w kernel.Work, final bool) 
 	if err != nil {
 		return err
 	}
-	if !now.Before(x.Session.ValidUntil()) || x.Session.ValidUntil().After(now.Add(20*time.Second)) || !now.Before(x.Invitation.Record.ExpiresAt) {
+	// API_OPERATIONS' explicit expiry closes pending rows before or after the
+	// natural deadline; that does not renew the actor's original session lease.
+	if !now.Before(x.Session.ValidUntil()) || x.Session.ValidUntil().After(now.Add(20*time.Second)) || x.Operation != organization.InvitationExpire && !now.Before(x.Invitation.Record.ExpiresAt) {
 		return identity.ForbiddenError{}
 	}
 	return nil
@@ -320,7 +328,7 @@ func (p *invitationPhase) Execute(ctx context.Context, c organization.Command) (
 	}
 	reservation, receipt, err := p.coordinator.ReserveCommand(ctx, p.input.Binding, p.command, plan)
 	if err != nil || reservation == (kernel.Reservation{}) {
-		if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject) && err == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
+		if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire) && err == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
 			// Retained receipts bypass Apply's protected admission. They are
 			// historical disclosure, not permission supplied by the old bearer
 			// or membership snapshot; use the same current recovery authority.

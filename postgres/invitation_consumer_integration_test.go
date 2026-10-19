@@ -142,6 +142,9 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		_, err := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), err)
 	}}, Invitation: organization.InvitationConfig{Audience: "organization-invitation", Lifetime: 48 * time.Hour, MaximumPending: 100}, Admission: organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000}, Sessions: sessions, Authorization: policy, Coordinator: coordinator, Risk: counters, Issuer: issuerpg.IssuerConfig{Crypto: capability.ServiceConfig{Issuer: origin, Signer: signer, Resolver: resolver, Clock: time.Now, Limits: limits}, Audience: "organization-invitation", CurrentReplayKeyVersion: 1, RetainedReplayKeys: map[uint32][32]byte{1: keys["capability-replay"]}, PreparationTimeout: time.Second}, Preparation: issuerpg.IssuancePreparationConfig{Deployment: "organization-invitation", ActiveEnvelopeKey: "capability-envelope", EnvelopeKeys: map[string][]byte{"capability-envelope": material("capability-envelope")}, VerificationKeys: []issuerpg.PreparationVerificationKey{{ID: "local-baseline", HMAC: material("capability-signing")}}, Clock: time.Now}, Delivery: organizationpg.InvitationDeliveryConfig{Owner: deliverer, Status: status, Renderer: renderer, Policy: deliveryPolicy, PolicyVersion: 2, ProviderVersion: 2, StatusPolicyVersion: 9, TemplateID: "organization-invitation", TemplateVersion: 1, LocaleChain: []string{"en"}, ScopeKey: keys["verification-scope"], Endpoint: origin + "/invitation"}}
+	if selectedProfile == "expire" {
+		configuration.Invitation.ExpirationReasons = []identity.PolicyReason{"security-withdrawal", "administrative-cleanup"}
+	}
 	service, err := organizationpg.NewInvitationService(repository, configuration)
 	if err != nil {
 		t.Fatal("actual invitation composition rejected", err)
@@ -224,6 +227,321 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			t.Fatal("genuine owner organization failed", e)
 		}
 		return sendInvitation(organization.ID(o), 1)
+	}
+	if selectedProfile == "expire" {
+		populated := issue("expire-populated")
+		var history migrationList
+		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}} {
+			steps, e := source.Load(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			history = append(history, steps...)
+		}
+		runner, e := migrations.NewRunner(history, backend)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("populated explicit expiry upgrade", e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("explicit expiry migration replay", e)
+		}
+		request := func(inv issued) organization.InvitationExpireRequest {
+			return organization.InvitationExpireRequest{Authentication: owner, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Reason: "security-withdrawal", CorrelationID: "expire-pending"}
+		}
+		t.Run("live proof terminal expiry", func(t *testing.T) {
+			inv := populated
+			for _, variant := range []string{"recipient", "tenant", "org", "stale-org", "stale-invitation", "unregistered-reason"} {
+				r := request(inv)
+				switch variant {
+				case "recipient":
+					r.Authentication = recipient
+				case "tenant":
+					r.Authentication.TenantID = "foreign"
+				case "org":
+					r.OrganizationID = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+				case "stale-org":
+					r.OrganizationVersion++
+				case "stale-invitation":
+					r.InvitationVersion++
+				case "unregistered-reason":
+					r.Reason = "unregistered"
+				}
+				if _, e := service.PrepareExpire(ctx, r, "127.0.0.1"); e == nil {
+					t.Fatal("unauthorized expiry admitted", variant)
+				}
+			}
+			accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "expire-predecessor"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			expireRequest := request(inv)
+			prepared, e := service.PrepareExpire(ctx, expireRequest, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			changed := expireRequest
+			changed.Reason = "administrative-cleanup"
+			changedPreparation, e := service.PrepareExpire(ctx, changed, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			result, e := service.Execute(ctx, prepared)
+			if e != nil || result.Receipt.Outcome != identity.CommitOutcomeCommitted || result.Receipt.Feature.BeforeVersion != 1 || result.Receipt.Feature.AfterVersion != 2 {
+				t.Fatal("genuine explicit expiry failed", e)
+			}
+			if r, e := service.Execute(ctx, accept); e == nil || r.Receipt.Outcome == identity.CommitOutcomeCommitted {
+				t.Fatal("expired original proof committed membership")
+			}
+			if _, e := newService(pool).PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "expire-reconstructed"}, "127.0.0.1"); e == nil {
+				t.Fatal("reconstructed service admitted expired proof")
+			}
+			metadata, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, ID: inv.id, CorrelationID: "expire-metadata"})
+			if e != nil || metadata.Invitation.Status != organization.InvitationExpired || metadata.Invitation.Version != 2 || !time.Now().Before(metadata.Invitation.ExpiresAt) {
+				t.Fatal("explicit expiry confused with natural projection", e)
+			}
+			page, e := service.List(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, Limit: 10, CorrelationID: "expire-list"})
+			if e != nil || len(page.Invitations) != 1 || page.Invitations[0].Invitation.Status != organization.InvitationExpired || page.Invitations[0].Invitation.Version != 2 {
+				t.Fatal("owner list lost explicit expiry", e)
+			}
+			mine, e := service.ListMine(ctx, organization.InvitationListMineRequest{Authentication: recipient, Limit: 10, CorrelationID: "expire-list-mine"})
+			if e != nil || len(mine.Invitations) != 1 || mine.Invitations[0].Status != organization.InvitationExpired || mine.Invitations[0].Version != 2 {
+				t.Fatal("recipient list lost explicit expiry", e)
+			}
+			if r, e := service.Execute(ctx, prepared); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted || r.Receipt.AuditEventID != result.Receipt.AuditEventID {
+				t.Fatal("original expiry retry changed", e)
+			}
+			if _, e := service.Execute(ctx, changedPreparation); !errors.Is(e, organization.ErrConflict) {
+				t.Fatal("same command accepted changed registered reason", e)
+			}
+			handle, e := prepared.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			if r, e := newService(pool).Recover(ctx, owner, handle); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("proof-free expiry recovery", e)
+			}
+			if _, e := newService(pool).Recover(ctx, recipient, handle); e == nil {
+				t.Fatal("recipient recovered administrative expiry")
+			}
+			var members, effects, events, audits, orgVersion int
+			var reason string
+			id, e := base64.RawURLEncoding.DecodeString(string(result.Receipt.Binding.CommandID))
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = pool.Raw().QueryRow(ctx, `SELECT (SELECT count(*) FROM organization.memberships WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3),(SELECT count(*) FROM organization.command_effects WHERE command_id=$4),(SELECT count(*) FROM public.identity_outbox_bindings b JOIN public.outbox_messages m ON m.id=b.effect_id WHERE b.command_id=$5 AND m.topic='invitation.expired.v1'),(SELECT count(*) FROM audit.identity_command_bindings b JOIN audit.records r ON r.record_id=b.event_id WHERE b.command_id=$5 AND r.action='identity.organization.expire_invitation' AND r.outcome=1),(SELECT version::integer FROM organization.organizations WHERE tenant_id=$1 AND organization_id=$2),expiry_reason FROM organization.invitations WHERE tenant_id=$1 AND invitation_id=$6`, string(baselineTenant), string(inv.org), string(recipientID), string(result.Receipt.Binding.CommandID), id, string(inv.id)).Scan(&members, &effects, &events, &audits, &orgVersion, &reason); e != nil || members != 0 || effects != 1 || events != 1 || audits != 1 || orgVersion != 1 || reason != "security-withdrawal" {
+				t.Fatal("expiry atomic effects or reason missing", e)
+			}
+		})
+		t.Run("natural projection becomes terminal once", func(t *testing.T) {
+			inv := issue("expire-natural")
+			if _, e := pool.Raw().Exec(ctx, `UPDATE organization.invitations SET created_at=clock_timestamp()-interval '2 hours',expires_at=date_trunc('second',clock_timestamp()-interval '1 second') WHERE tenant_id=$1 AND invitation_id=$2`, string(baselineTenant), string(inv.id)); e != nil {
+				t.Fatal(e)
+			}
+			before, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, ID: inv.id, CorrelationID: "expire-natural-before"})
+			if e != nil || before.Invitation.Status != organization.InvitationExpired || before.Invitation.Version != 1 {
+				t.Fatal("natural projection wrote terminal metadata", e)
+			}
+			prepared, e := service.PrepareExpire(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			if out, e := service.Execute(ctx, prepared); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("elapsed pending row could not terminalize", e)
+			}
+			after, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, ID: inv.id, CorrelationID: "expire-natural-after"})
+			if e != nil || after.Invitation.Status != organization.InvitationExpired || after.Invitation.Version != 2 {
+				t.Fatal("terminal expiry indistinguishable from projection", e)
+			}
+			if _, e := service.PrepareExpire(ctx, request(inv), "127.0.0.1"); e == nil {
+				t.Fatal("terminal expiry admitted twice")
+			}
+		})
+		t.Run("accept versus expire contention", func(t *testing.T) {
+			inv := issue("expire-race")
+			expire, e := service.PrepareExpire(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-expire-race"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			var wg sync.WaitGroup
+			var wins atomic.Int32
+			for _, p := range []organizationpg.PreparedInvitation{expire, accept} {
+				wg.Add(1)
+				go func(p organizationpg.PreparedInvitation) {
+					defer wg.Done()
+					out, e := service.Execute(ctx, p)
+					if e == nil && out.Receipt.Outcome == identity.CommitOutcomeCommitted {
+						wins.Add(1)
+					}
+				}(p)
+			}
+			wg.Wait()
+			var state string
+			var effects, members int
+			if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.command_effects WHERE invitation_id=$1 AND operation IN('identity.organization.invitation.accept','identity.organization.invitation.expire')),(SELECT count(*) FROM organization.memberships WHERE tenant_id=$2 AND organization_id=$3 AND user_id=$4 AND state='active') FROM organization.invitations WHERE tenant_id=$2 AND invitation_id=$1`, string(inv.id), string(baselineTenant), string(inv.org), string(recipientID)).Scan(&state, &effects, &members); e != nil || wins.Load() != 1 || effects != 1 || state != "accepted" && state != "expired" || (state == "accepted") != (members == 1) {
+				t.Fatal("accept/expire did not select one terminal outcome", e)
+			}
+		})
+		for _, boundary := range []string{"audit", "event"} {
+			t.Run("expiry rollback "+boundary, func(t *testing.T) {
+				inv := issue("expire-rollback-" + boundary)
+				prepared, e := service.PrepareExpire(ctx, request(inv), "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				table, condition := "audit.records", "NEW.action='identity.organization.expire_invitation' AND NEW.outcome=1"
+				if boundary == "event" {
+					table, condition = "public.outbox_messages", "NEW.topic='invitation.expired.v1'"
+				}
+				if _, e = pool.Raw().Exec(ctx, `CREATE FUNCTION organization.expiry_failure_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF `+condition+` THEN RAISE EXCEPTION USING ERRCODE='23514',MESSAGE='controlled expiry effect failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER expiry_failure_fixture BEFORE INSERT ON `+table+` FOR EACH ROW EXECUTE FUNCTION organization.expiry_failure_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				out, failure := service.Execute(ctx, prepared)
+				if _, e = pool.Raw().Exec(ctx, `DROP TRIGGER expiry_failure_fixture ON `+table+`; DROP FUNCTION organization.expiry_failure_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				if failure == nil || out.Receipt.Outcome == identity.CommitOutcomeCommitted {
+					t.Fatal("required expiry effect failure committed")
+				}
+				var state string
+				var effects int
+				if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.command_effects WHERE invitation_id=$1 AND operation='identity.organization.invitation.expire') FROM organization.invitations WHERE tenant_id=$2 AND invitation_id=$1`, string(inv.id), string(baselineTenant)).Scan(&state, &effects); e != nil || state != "pending" || effects != 0 {
+					t.Fatal("failed expiry retained terminal effects", e)
+				}
+				accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-expiry-rollback"}, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				if out, e := service.Execute(ctx, accept); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+					t.Fatal("expiry rollback invalidated original proof", e)
+				}
+			})
+		}
+		t.Run("expiry lost commit acknowledgment", func(t *testing.T) {
+			inv := issue("expire-lost-ack")
+			fault := new(commitResponseLoss)
+			faultPool, e := database.Connect(ctx, database.Config{DSN: os.Getenv("GOLIB_ORGANIZATION_TEST_POSTGRES_DSN"), MaxConns: 2, Configure: func(c *database.PoolConfig) error {
+				c.ConnConfig.Database = pool.Raw().Config().ConnConfig.Database
+				c.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+					conn, e := (&net.Dialer{}).DialContext(ctx, network, address)
+					if e != nil {
+						return nil, e
+					}
+					return &lossyCommitConn{Conn: conn, fault: fault}, nil
+				}
+				return nil
+			}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() {
+				cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				defer stop()
+				if e := faultPool.Close(cleanup); e != nil {
+					t.Error(e)
+				}
+			}()
+			faultService := newService(faultPool)
+			prepared, e := faultService.PrepareExpire(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			handle, e := prepared.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			wire, e := json.Marshal(handle)
+			if e != nil {
+				t.Fatal(e)
+			}
+			var restored organizationpg.InvitationRecovery
+			if json.Unmarshal(wire, &restored) != nil || restored != handle {
+				t.Fatal("expiry correlation lost")
+			}
+			fault.armed.Store(true)
+			out, e := faultService.Execute(ctx, prepared)
+			if e == nil || !fault.lost.Load() || out.Receipt.Outcome != identity.CommitOutcomeUnknown {
+				t.Fatal("lost expiry acknowledgment not unknown", e)
+			}
+			if r, e := newService(pool).Recover(ctx, signinOwner(), restored); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted || r.Receipt.Binding != restored.Binding {
+				t.Fatal("fresh-session proof-free expiry recovery", e)
+			}
+		})
+		for _, stage := range []string{"execute", "management", "query", "replay"} {
+			t.Run("expiry current administrator "+stage, func(t *testing.T) {
+				inv := issue("expire-admin-" + stage)
+				add, e := organizations.PrepareAddMember(ctx, organization.MemberRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 1, UserID: recipientID, Role: organization.RoleAdministrator, CorrelationID: "expire-add-admin"}, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				if out, e := organizations.Execute(ctx, add); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+					t.Fatal(e)
+				}
+				hook := &invitationCancellationPolicy{base: policy}
+				c := configuration
+				c.Authorization = hook
+				q := *configuration.Coordinator.QueryPolicy
+				q.Authorization = hook
+				c.Coordinator.QueryPolicy, c.Coordinator.AdmissionPolicy = &q, &q
+				current, e := organizationpg.NewInvitationService(repository, c)
+				if e != nil {
+					t.Fatal(e)
+				}
+				r := request(inv)
+				r.Authentication = recipient
+				r.OrganizationVersion = 2
+				prepared, e := current.PrepareExpire(ctx, r, "127.0.0.1")
+				if e != nil {
+					t.Fatal("administrator expiry prepare", e)
+				}
+				if stage != "execute" {
+					if out, e := current.Execute(ctx, prepared); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+						t.Fatal("administrator expiry", e)
+					}
+				}
+				fired := false
+				hook.before = func(ctx context.Context, d authorization.DecisionContext) error {
+					resource := "organization"
+					if stage == "query" {
+						resource = "identity.user"
+					}
+					if fired || d.Request.Action != authorization.Action(organization.InvitationExpire) || string(d.Request.Resource.Type) != resource {
+						return nil
+					}
+					fired = true
+					remove, e := organizations.PrepareRemoveMember(ctx, organization.MemberRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 2, UserID: recipientID, MemberVersion: 1, CorrelationID: "expire-remove-admin"}, "127.0.0.1")
+					if e != nil {
+						return e
+					}
+					_, e = organizations.Execute(ctx, remove)
+					return e
+				}
+				if stage == "execute" || stage == "replay" {
+					if out, e := current.Execute(ctx, prepared); e == nil || out.Receipt.Outcome == identity.CommitOutcomeCommitted {
+						t.Fatal("removed administrator executed/disclosed expiry", e)
+					}
+				} else {
+					handle, e := prepared.Recovery()
+					if e != nil {
+						t.Fatal(e)
+					}
+					if out, e := current.Recover(ctx, recipient, handle); e == nil || out.Receipt.Outcome != identity.CommitOutcomeInvalid {
+						t.Fatal("late removed administrator recovered expiry", e)
+					}
+				}
+				if !fired {
+					t.Fatal("authority withdrawal oracle did not run")
+				}
+			})
+		}
+		return
 	}
 	if selectedProfile == "reject" {
 		var history migrationList

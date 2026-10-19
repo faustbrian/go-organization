@@ -45,7 +45,7 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 	if ctx == nil || r == nil || r.organizations == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) || !scope(string(q.InvitationID)) || q.Cursor != "" || q.Limit != 0 {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
-	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationReject {
+	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationReject && q.Operation != organization.InvitationExpire {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
 	bounded, cancel := context.WithTimeout(ctx, r.organizations.maximum)
@@ -76,7 +76,7 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 		if err != nil {
 			return v, err
 		}
-		if current.Actor.Role != organization.RoleOwner && (q.Operation != organization.InvitationCancel || current.Actor.Role != organization.RoleAdministrator) {
+		if current.Actor.Role != organization.RoleOwner && ((q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationExpire) || current.Actor.Role != organization.RoleAdministrator) {
 			return v, organization.ErrForbidden
 		}
 		v.Organization, v.Actor, v.Target = current.Organization, current.Actor, current.Target
@@ -88,7 +88,7 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 			return organization.InvitationSnapshot{}, storageError(bounded, err)
 		}
 		v.Record = i
-		if q.Operation == organization.InvitationCancel {
+		if q.Operation == organization.InvitationCancel || q.Operation == organization.InvitationExpire {
 			return v, bounded.Err()
 		}
 		if q.Operation == organization.InvitationGet {
@@ -214,6 +214,8 @@ func scanInvitation(row invitationScanner, tenant identity.TenantID, org organiz
 		i.Status = organization.InvitationCancelled
 	case "rejected":
 		i.Status = organization.InvitationRejected
+	case "expired":
+		i.Status = organization.InvitationExpired
 	default:
 		return organization.InvitationDelivery{}, organization.ErrUnavailable
 	}
