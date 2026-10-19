@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add current owner/administrator invitation resend with atomic predecessor
+  supersession, one successor grant/encrypted delivery and unchanged recipient,
+  member role and deadline. Install `InvitationResendMigrationSource` after
+  expiry before selecting resend. `ExecuteResend`/`RecoverResend` expose only
+  the original command's bounded delivery metadata, retaining known committed
+  receipts if a later metadata read fails; retries/recovery never reissue.
+
 - Add native static member-role updates with atomic organization/member/scoped
   authority versions, canonical protected audit/lifecycle and exact recovery.
   Existing schemas suffice. Self-demotion history requires current membership

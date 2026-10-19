@@ -41,7 +41,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	}
 	b := recovery.Binding
 	op := organization.Operation(b.OperationID)
-	if (op != organization.InvitationSend && op != organization.InvitationAccept && op != organization.InvitationCancel && op != organization.InvitationReject && op != organization.InvitationExpire) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
+	if (op != organization.InvitationSend && op != organization.InvitationAccept && op != organization.InvitationCancel && op != organization.InvitationReject && op != organization.InvitationExpire && op != organization.InvitationResend) || b.ValidateFor(op.Descriptor()) != nil || b.PolicyID != s.config.Core.PolicyID || b.PolicyVersion != s.config.Core.PolicyVersion || b.ActorKind != authorization.SubjectUser || !scope(string(recovery.OrganizationID)) {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	x := organization.CommandInput{Binding: b, Operation: op, Organization: organization.Organization{ID: recovery.OrganizationID}, Invitation: organization.InvitationInput{Record: organization.Invitation{ID: organization.ID(b.RecordID)}}}
@@ -82,7 +82,28 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	var cancellation *recoveryInput
 	var rejection *organization.InvitationSnapshot
 	query := identity.RecoveryQuery{CommandID: b.CommandID, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
-	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
+	if x.Operation == organization.InvitationResend {
+		// Unlike initial send, resend always starts from an immutable owning
+		// invitation row. Do not extend send-origin framing or trust caller org.
+		var org, recipient string
+		if err = s.actor.repository.pool.Raw().QueryRow(bounded, `SELECT organization_id,recipient_user_id FROM organization.invitations WHERE tenant_id=$1 AND invitation_id=$2`, string(b.TenantID), b.RecordID).Scan(&org, &recipient); err != nil {
+			return organization.StoreResult{}, storageError(bounded, err)
+		}
+		if org != string(recovery.OrganizationID) || recipient != string(b.UserID) {
+			return organization.StoreResult{}, organization.ErrForbidden
+		}
+		v, e := s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: recovery.OrganizationID, CorrelationID: b.CorrelationID})
+		if e != nil {
+			return organization.StoreResult{}, e
+		}
+		if v.Actor.Role != organization.RoleOwner && v.Actor.Role != organization.RoleAdministrator {
+			return organization.StoreResult{}, organization.ErrForbidden
+		}
+		version = v.Organization.Version
+		binding := b
+		binding.RecordID = string(v.Organization.ID)
+		cancellation = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: v.Organization, member: v.Actor}
+	} else if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		if b.UserID != actor.UserID {
 			return organization.StoreResult{}, organization.ErrForbidden
 		}
@@ -205,7 +226,7 @@ func (s *InvitationService) recoverPrepared(ctx context.Context, p *invitationPh
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	result, err := s.Recover(ctx, organization.Authentication{TenantID: p.input.Binding.TenantID, Bearer: p.input.Bearer}, InvitationRecovery{Binding: p.input.Binding, OrganizationID: p.input.Organization.ID})
-	if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire) && p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
+	if (p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire || p.input.Operation == organization.InvitationResend) && p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
 	return result, err

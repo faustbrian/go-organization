@@ -49,7 +49,7 @@ type InvitationDeliveryConfig struct {
 // Session/issuer/envelope keys and borrowed owners must outlive pending work.
 // Install membership, invitation-read, invitation-capability and (for cancel)
 // invitation-cancellation, (for reject) invitation-rejection and (for expire)
-// invitation-expiry migrations plus
+// invitation-expiry and (for resend) invitation-resend migrations plus
 // all selected shared owner migrations before invoking this service.
 type InvitationServiceConfig struct {
 	Core          organization.Config

@@ -62,6 +62,7 @@ func (r *InvitationRepository) ReadInvitationsMine(ctx context.Context, q organi
 		if err = rows.Scan(&org, &item.ID, &item.RecipientUserID, &item.RecipientIdentifierID, &identifierVersion, &item.CreatedBy, &item.Role, &state, &version, &item.ExpiresAt); err != nil {
 			return organization.InvitationListMineSnapshot{}, storageError(bounded, err)
 		}
+		item.ExpiresAt = item.ExpiresAt.UTC()
 		item.OrganizationID = org
 		if item.Version, err = positive(version); err != nil {
 			return organization.InvitationListMineSnapshot{}, err
@@ -82,6 +83,13 @@ func (r *InvitationRepository) ReadInvitationsMine(ctx context.Context, q organi
 			item.Status = organization.InvitationExpired
 		default:
 			return organization.InvitationListMineSnapshot{}, organization.ErrUnavailable
+		}
+		item.IssuedVersion = item.Version
+		if item.Status != organization.InvitationPending {
+			if item.Version < 2 {
+				return organization.InvitationListMineSnapshot{}, organization.ErrUnavailable
+			}
+			item.IssuedVersion--
 		}
 		if len(out.Invitations) >= int(q.Limit)+1 {
 			return organization.InvitationListMineSnapshot{}, organization.ErrUnavailable

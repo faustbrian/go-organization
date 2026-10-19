@@ -32,6 +32,7 @@ type invitationPhase struct {
 	registry      *kernel.ContributorRegistry
 	coordinator   *kernel.Coordinator
 	execution     *invitationExecution
+	applied       bool
 }
 
 var _ kernel.OrganizationInvitationIssuanceContributor = (*invitationPhase)(nil)
@@ -42,7 +43,7 @@ func (*invitationPhase) Descriptor() kernel.ContributorDescriptor {
 	return kernel.ContributorDescriptor{Owner: "organization/postgres", ContractID: "organization.invitation", Version: 1}
 }
 func (*invitationPhase) FeatureOperations() []identity.FeatureOperation {
-	return []identity.FeatureOperation{organization.InvitationSend.Descriptor(), organization.InvitationAccept.Descriptor(), organization.InvitationCancel.Descriptor(), organization.InvitationReject.Descriptor(), organization.InvitationExpire.Descriptor()}
+	return []identity.FeatureOperation{organization.InvitationSend.Descriptor(), organization.InvitationAccept.Descriptor(), organization.InvitationCancel.Descriptor(), organization.InvitationReject.Descriptor(), organization.InvitationExpire.Descriptor(), organization.InvitationResend.Descriptor()}
 }
 
 func (p *invitationPhase) mapCommand() error {
@@ -53,13 +54,16 @@ func (p *invitationPhase) mapCommand() error {
 	}
 	i := x.Invitation.Record
 	f = append(f, text("id", string(x.Organization.ID)), number("version", x.Organization.Version), number("actor-version", x.Actor.Version), text("actor-role", string(x.Actor.Role)), number("actor-authorization", x.Actor.AuthorizationVersion), number("member-version", x.Target.Version), text("member-role", string(x.Target.Role)), number("member-authorization", x.Target.AuthorizationVersion), number("target-version", x.TargetUser.Version), text("target-status", string(x.TargetUser.Status)), text("role", string(i.Role)), number("maximum-members", x.MaximumMembers), number("maximum-per-user", x.MaximumPerUser), number("maximum-per-tenant", x.MaximumPerTenant), number("maximum-pending", x.Invitation.MaximumPending), number("invitation-version", i.Version), text("recipient-identifier", string(i.RecipientIdentifierID)), number("recipient-identifier-version", i.RecipientIdentifierVersion), identity.FeatureField{Name: "organization.invitation-expires-at", Value: identity.FeatureValue{Kind: identity.FeatureTime, Time: i.ExpiresAt}}, text("session-until", x.Session.ValidUntil().UTC().Format(time.RFC3339Nano)))
-	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationReject || x.Operation == organization.InvitationExpire {
+	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationReject || x.Operation == organization.InvitationExpire || x.Operation == organization.InvitationResend {
 		// Terminal withdrawals retain the invitation's historical recipient and
 		// creator in keyed identity without changing legacy send/accept bytes.
 		f = append(f, text("invitation-recipient", string(i.RecipientUserID)), text("invitation-created-by", string(i.CreatedBy)))
 	}
 	if x.Operation == organization.InvitationExpire {
 		f = append(f, text("expiry-reason", string(x.Invitation.ExpirationReason)))
+	}
+	if x.Operation == organization.InvitationResend {
+		f = append(f, number("invitation-issued-version", i.IssuedVersion))
 	}
 	p.command, err = identity.NewFeatureSessionCommand(identity.FeatureCommandSpec{Binding: x.Binding, Operation: x.Operation.Descriptor(), Fields: f}, x.Bearer)
 	return err
@@ -97,7 +101,7 @@ func (p *invitationPhase) compose() error {
 		return err
 	}
 	contributors := []kernel.Contributor{p.service.actor.repository.directory, a, l, p.service.config.Risk, p}
-	if p.input.Operation == organization.InvitationSend {
+	if invitationIssuance(p.input.Operation) {
 		contributors = append(contributors, p.service.issuer, p.service.config.Delivery.Owner)
 	} else if p.input.Operation == organization.InvitationAccept {
 		contributors = append(contributors, issuerpg.NewParticipant())
@@ -110,6 +114,9 @@ func (p *invitationPhase) compose() error {
 	return err
 }
 func (p *invitationPhase) lifecycle() (string, string) {
+	if p.input.Operation == organization.InvitationResend {
+		return "invitation.resent.v1", "identity.organization.resend_invitation"
+	}
 	if p.input.Operation == organization.InvitationExpire {
 		return "invitation.expired.v1", "identity.organization.expire_invitation"
 	}
@@ -127,7 +134,7 @@ func (p *invitationPhase) lifecycle() (string, string) {
 func (p *invitationPhase) retention() string {
 	// SECURITY_EVENTS selects standard retention for withdrawals; historical
 	// send/accept profiles retain their installed protected classification.
-	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire {
+	if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire || p.input.Operation == organization.InvitationResend {
 		return "standard"
 	}
 	return "protected"
@@ -166,7 +173,9 @@ func (p *invitationPhase) plan(final bool) (kernel.CommandPlan, error) {
 		plan.Capability = &p.capability
 		return p.coordinator.PrepareCommandPlan(b, p.command, plan)
 	}
-	plan.OrganizationInvitationOrigin = &kernel.OrganizationInvitationOriginPlan{OrganizationID: string(p.input.Organization.ID), OrganizationVersion: p.input.Organization.Version}
+	if p.input.Operation == organization.InvitationSend {
+		plan.OrganizationInvitationOrigin = &kernel.OrganizationInvitationOriginPlan{OrganizationID: string(p.input.Organization.ID), OrganizationVersion: p.input.Organization.Version}
+	}
 	if !final {
 		return p.coordinator.PrepareFeaturePreparationPlan(p.command, plan)
 	}
@@ -201,6 +210,10 @@ func (p *invitationPhase) ValidateFeatureCommand(c identity.Command, plan kernel
 		if plan.Capability != nil || plan.OrganizationInvitationOrigin == nil || *plan.OrganizationInvitationOrigin != origin {
 			return identity.InvalidInputError{Field: "invitation"}
 		}
+	} else if p.input.Operation == organization.InvitationResend {
+		if plan.Capability != nil || plan.OrganizationInvitationOrigin != nil {
+			return identity.InvalidInputError{Field: "invitation"}
+		}
 	} else if p.input.Operation == organization.InvitationCancel || p.input.Operation == organization.InvitationReject || p.input.Operation == organization.InvitationExpire {
 		if plan.Capability != nil || plan.CapabilityIssuance != nil || plan.Delivery != nil || plan.OrganizationInvitationOrigin != nil {
 			return identity.InvalidInputError{Field: "invitation"}
@@ -214,7 +227,7 @@ func (p *invitationPhase) ValidateOrganizationInvitationIssuance(c identity.Comm
 	if err := p.ValidateFeatureCommand(c, plan); err != nil {
 		return err
 	}
-	if p.input.Operation != organization.InvitationSend || plan.CapabilityIssuance == nil || plan.Delivery == nil || len(plan.CapabilityIssuance.Grants) != 1 || len(plan.Delivery.Intents) != 1 {
+	if !invitationIssuance(p.input.Operation) || plan.CapabilityIssuance == nil || plan.Delivery == nil || len(plan.CapabilityIssuance.Grants) != 1 || len(plan.Delivery.Intents) != 1 {
 		return identity.InvalidInputError{Field: "invitation"}
 	}
 	g, d := plan.CapabilityIssuance.Grants[0], plan.Delivery.Intents[0]
@@ -288,7 +301,7 @@ func (p *invitationPhase) admit(ctx context.Context, w kernel.Work, final bool) 
 	if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		// Withdrawing an invitation must remain possible after recipient email
 		// removal/suspension; only the authenticated administrator is admitted.
-	} else if !final && x.Operation == organization.InvitationSend {
+	} else if !final && invitationIssuance(x.Operation) {
 		err = w.RequireOrganizationInvitationRecipient(ctx, p, p.recipient)
 	} else {
 		err = w.RequireRecipient(ctx, p, p.recipient)
@@ -322,8 +335,14 @@ func (p *invitationPhase) Execute(ctx context.Context, c organization.Command) (
 	if err != nil {
 		return organization.StoreResult{}, err
 	}
-	if p.input.Operation == organization.InvitationSend {
+	if invitationIssuance(p.input.Operation) {
+		p.applied = false
 		receipt, err := p.coordinator.ExecutePreparedFeature(ctx, p.command, plan)
+		if p.input.Operation == organization.InvitationResend && !p.applied && err == nil && receipt.Outcome != identity.CommitOutcomeUnknown && receipt.Outcome != identity.CommitOutcomeInvalid {
+			// Only retained history skips Apply's current protected fences. A
+			// fresh known commit must survive a later metadata failure unchanged.
+			return p.service.recoverPrepared(ctx, p)
+		}
 		return p.result(receipt), err
 	}
 	reservation, receipt, err := p.coordinator.ReserveCommand(ctx, p.input.Binding, p.command, plan)
@@ -398,3 +417,7 @@ func (p *invitationPhase) RecoverParticipant(ctx context.Context, w kernel.Recov
 }
 
 func invitationDigest(wire []byte) [32]byte { return sha256.Sum256(wire) }
+
+func invitationIssuance(op organization.Operation) bool {
+	return op == organization.InvitationSend || op == organization.InvitationResend
+}

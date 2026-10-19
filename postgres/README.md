@@ -192,7 +192,50 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend and other full-goal profiles remain unimplemented.
+Other full-goal profiles remain unimplemented.
+
+### Invitation resend and supersession
+
+Install `InvitationResendMigrationSource` at an unused permanent version after
+the expiry migration, before selecting resend. Previous migration bytes and
+version1/2 rows remain unchanged. The forward schema retains an issued version
+and the original resend command's delivery effect on the existing domain effect
+record. Pending `Version == IssuedVersion`; a durable terminal transition is
+one version later. Natural expiry still projects the pending issued version
+without writing. Older binaries fail closed on later pending versions; do not
+use them to accept a resent invitation.
+
+`PrepareResend` requires a current genuine owner/administrator, exact pending
+invitation and organization versions, and the original current verified email
+recipient. It accepts no role/address override. Preparation issues nothing.
+The existing kernel acknowledges original preparation before the real issuer
+generates one successor and transfers its proof into encrypted delivery custody.
+One commit replaces this same invitation's proof/version and delivery effect,
+with `invitation.resent.v1`, canonical standard-retention
+`identity.organization.resend_invitation` audit and original command effects.
+Recipient, identifier/version, member role, creator and original exclusive
+deadline are unchanged. No membership or organization authority epoch advances.
+The predecessor cannot accept after that commit, including a prepared acceptance
+or a new service holding the original proof. A failed transaction preserves the
+predecessor and rolls back successor, delivery, audit and lifecycle effects.
+
+Use `ExecuteResend` for a typed `InvitationResendResult`; generic `Execute`
+keeps the core receipt/IDs contract unchanged. A non-nil `Delivery` observes
+only this original command's effect ID and delivery-owned state, never a proof,
+address or the invitation's latest delivery. Provider acceptance is not confirmed
+receipt. Administrators can use this result without widening owner-only
+`Get`/`List`. An unknown or failed outcome has no invented delivery state. If
+commit is known but the later authorized status read fails, the result retains
+that committed receipt and returns an error with `Delivery == nil`.
+
+Retain the same prepared command for retries and persist its safe `Recovery()`
+handle before execution. Use `RecoverResend` with current genuine authentication
+for code-free history, including after process reconstruction, later resends or
+acceptance. Current manager/session/scoped authority, action and recovery policy
+remain mandatory; the existing metadata owner applies its own delivery policy.
+Historical results describe the original transition and original delivery, not
+fresh issuance. Neither retry nor recovery signs again, renews the deadline,
+redelivers or creates a new journal.
 
 ### Explicit invitation expiry
 
@@ -208,8 +251,8 @@ an unsupported or default-deny classification is not bypassed by this adapter.
 organization/invitation versions and a registered reason. Recipient credentials
 and invitation proofs confer no administrative authority. Explicit expiry may
 close a live invitation early or terminalize a still-pending elapsed row. Safe
-metadata uses `InvitationExpired` version2 for the committed terminal state;
-the pre-existing natural-deadline projection remains version1 and performs no
+metadata uses `InvitationExpired` at issued version+1 for the committed terminal
+state; the natural-deadline projection retains the issued version and performs no
 write. `ExpiresAt` always retains the original natural deadline.
 
 One existing-coordinator commit stores terminal state/version, reason, canonical
@@ -237,7 +280,7 @@ organization/invitation versions. No membership, administrative actor override
 or invitation proof is accepted as recipient authority.
 
 `Execute` uses the existing coordinator and current session/directory fences.
-One commit changes only the pending invitation to rejected version 2 and stores
+One commit changes only the pending invitation to its next rejected version and stores
 the canonical `identity.organization.reject_invitation` audit,
 `invitation.rejected.v1` event and command effect. Retention is `standard`, as
 declared by the canonical SECURITY_EVENTS invitation profile; prior send/accept
@@ -263,12 +306,13 @@ versions and current owner/administrator authentication. Recipient email removal
 or suspension does not by itself block cancellation.
 
 Execution uses the existing risk/coordinator/current-session, organization,
-membership and scoped-authority owners. It atomically changes live pending1 to
-cancelled2, persists the required standard-retention
+membership and scoped-authority owners. It atomically advances the live pending
+issued version to its next cancelled version, persists the required standard-retention
 `identity.organization.cancel_invitation` audit and `invitation.cancelled.v1`
 outbox event, and records the original result. It neither sends another message
 nor consumes/reissues a capability. An already queued/sent invitation may still
-arrive, but its proof cannot authorize acceptance. Acceptance independently requires pending1;
+arrive, but its proof cannot authorize acceptance. Acceptance independently requires
+the exact current pending issued version;
 accept/cancel contention has one terminal winner, and an unsuccessful acceptance
 cannot retain provisional membership or capability consumption. No organization
 policy epoch or global credential is changed because cancellation withdraws a

@@ -45,7 +45,7 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 	if ctx == nil || r == nil || r.organizations == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) || !scope(string(q.InvitationID)) || q.Cursor != "" || q.Limit != 0 {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
-	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationReject && q.Operation != organization.InvitationExpire {
+	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationReject && q.Operation != organization.InvitationExpire && q.Operation != organization.InvitationResend {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
 	bounded, cancel := context.WithTimeout(ctx, r.organizations.maximum)
@@ -76,7 +76,7 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 		if err != nil {
 			return v, err
 		}
-		if current.Actor.Role != organization.RoleOwner && ((q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationExpire) || current.Actor.Role != organization.RoleAdministrator) {
+		if current.Actor.Role != organization.RoleOwner && ((q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationExpire && q.Operation != organization.InvitationResend) || current.Actor.Role != organization.RoleAdministrator) {
 			return v, organization.ErrForbidden
 		}
 		v.Organization, v.Actor, v.Target = current.Organization, current.Actor, current.Target
@@ -98,9 +98,10 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 			}
 			return v, bounded.Err()
 		}
-		if i.Invitation.RecipientUserID != q.ActorID {
+		if q.Operation != organization.InvitationResend && i.Invitation.RecipientUserID != q.ActorID {
 			return organization.InvitationSnapshot{}, organization.ErrForbidden
 		}
+		q.RecipientUserID = i.Invitation.RecipientUserID
 		q.RecipientIdentifierID = i.Invitation.RecipientIdentifierID
 		var errTarget error
 		v.Target, errTarget = r.currentTarget(bounded, q.TenantID, q.OrganizationID, q.RecipientUserID)
@@ -187,19 +188,29 @@ func (r *InvitationRepository) currentTarget(ctx context.Context, tenant identit
 	return m, nil
 }
 
-const invitationSelect = `SELECT invitation_id,recipient_user_id,recipient_identifier_id,recipient_identifier_version::text,created_by,role,state,version::text,expires_at,delivery_effect_id FROM organization.invitations`
+// Durable state disambiguates terminal expiry from the read-only pending
+// projection. The resend lifecycle CHECK enforces this same issued relation;
+// deriving it also preserves reads on pre-resend schemas without column probes.
+const invitationSelect = `SELECT invitation_id,recipient_user_id,recipient_identifier_id,recipient_identifier_version::text,created_by,role,state,version::text,expires_at,delivery_effect_id,(CASE WHEN state='pending' THEN version ELSE version-1 END)::text FROM organization.invitations`
 
 type invitationScanner interface{ Scan(...any) error }
 
 func scanInvitation(row invitationScanner, tenant identity.TenantID, org organization.ID) (organization.InvitationDelivery, error) {
 	v := organization.InvitationDelivery{Invitation: organization.Invitation{TenantID: tenant, OrganizationID: org}}
 	i := &v.Invitation
-	var identifierVersion, version, state string
-	err := row.Scan(&i.ID, &i.RecipientUserID, &i.RecipientIdentifierID, &identifierVersion, &i.CreatedBy, &i.Role, &state, &version, &i.ExpiresAt, &v.EffectID)
+	var identifierVersion, version, issued, state string
+	err := row.Scan(&i.ID, &i.RecipientUserID, &i.RecipientIdentifierID, &identifierVersion, &i.CreatedBy, &i.Role, &state, &version, &i.ExpiresAt, &v.EffectID, &issued)
 	if err != nil {
 		return organization.InvitationDelivery{}, err
 	}
+	// The issuer requires UTC whole-second timestamps, whereas pgx may return
+	// timestamptz in a driver-local location. Preserve the exact original instant;
+	// a resend must never replace it with a fresh lifetime or local-clock value.
+	i.ExpiresAt = i.ExpiresAt.UTC()
 	if i.Version, err = positive(version); err != nil {
+		return organization.InvitationDelivery{}, err
+	}
+	if i.IssuedVersion, err = positive(issued); err != nil {
 		return organization.InvitationDelivery{}, err
 	}
 	if i.RecipientIdentifierVersion, err = positive(identifierVersion); err != nil {

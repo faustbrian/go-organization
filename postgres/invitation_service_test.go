@@ -35,3 +35,18 @@ func TestInvitationPublicZeroValuesAndSensitiveCustody(t *testing.T) {
 		}
 	}
 }
+
+func TestInvitationResendPublicBoundaryRejectsMissingCustody(t *testing.T) {
+	var service *organizationpg.InvitationService
+	if _, err := service.PrepareResend(t.Context(), organization.InvitationResendRequest{}, "127.0.0.1"); !errors.Is(err, organization.ErrInvalidInput) {
+		t.Fatal("missing resend service admitted", err)
+	}
+	result, err := service.ExecuteResend(t.Context(), organizationpg.PreparedInvitation{})
+	if !errors.Is(err, organization.ErrInvalidInput) || result.Delivery != nil {
+		t.Fatal("missing resend custody manufactured a delivery observation", err)
+	}
+	result, err = service.RecoverResend(t.Context(), organization.Authentication{}, organizationpg.InvitationRecovery{})
+	if !errors.Is(err, organization.ErrInvalidInput) || result.Delivery != nil {
+		t.Fatal("missing original command manufactured resend history", err)
+	}
+}

@@ -44,7 +44,7 @@ import (
 // The caller has just registered, confirmed and signed in both users through
 // actual public identity HTTP/services. This continuation reuses those exact
 // primary users and sessions, never SQL-created credentials or proof JSON.
-func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, selectedProfile string) {
+func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, selectedProfile string, administrators ...invitationResendAdministrator) {
 	t.Helper()
 	readSteps, err := (organizationpg.InvitationMigrationSource{Version: 7001}).Load(ctx)
 	if err != nil {
@@ -92,7 +92,8 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 	deliveryPolicy.Production = true
 	custody := deliverypg.ContributorConfig{Deployment: "deployment", CurrentDigestKeyVersion: 1, RetainedDigestKeys: map[uint32][32]byte{1: keys["delivery-digest"]}, ActiveEnvelopeKeyID: "delivery-envelope", PreparationTimeout: time.Second, ProviderProfiles: map[uint64]deliverypg.ProviderProfile{2: {Provider: "invitation-mailbox", PolicyVersion: 2}}}
 	templates := []delivery.Template{{ID: "organization-invitation", Version: 1, Channel: delivery.ChannelEmail, Locale: "en", Body: "{{.link}}", ContentType: "text/plain", RequiredVariables: []string{"link"}, VariableSchema: []delivery.VariableSchema{{Name: "link", Kind: "url", Sensitive: true}}, AllowedOrigins: []string{origin}, MaxRenderedBytes: 4096}}
-	status, err := deliverypg.NewEnqueueService(ctx, pool, deliverypg.EnqueueConfig{Custody: custody, Coordinator: coordinator, PolicyID: "organization", PolicyVersion: 9, AuditRetentionVersion: 1, Timeout: 4 * time.Second, NamespaceKey: keys["delivery-namespace"], Policies: map[uint64]delivery.Config{2: deliveryPolicy}, StateTracking: true}, crypto, policy, templates)
+	statusPolicy := &invitationCancellationPolicy{base: policy}
+	status, err := deliverypg.NewEnqueueService(ctx, pool, deliverypg.EnqueueConfig{Custody: custody, Coordinator: coordinator, PolicyID: "organization", PolicyVersion: 9, AuditRetentionVersion: 1, Timeout: 4 * time.Second, NamespaceKey: keys["delivery-namespace"], Policies: map[uint64]delivery.Config{2: deliveryPolicy}, StateTracking: true}, crypto, statusPolicy, templates)
 	if err != nil {
 		t.Fatal("invitation delivery graph rejected", err)
 	}
@@ -107,6 +108,10 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 	signer, err := capability.NewHMACSHA256Signer("local-baseline", material("capability-signing"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	countedSigner := &invitationResendSigner{Signer: signer}
+	if selectedProfile == "resend" {
+		signer = countedSigner
 	}
 	verifier, err := capability.NewHMACSHA256Verifier(material("capability-signing"))
 	if err != nil {
@@ -142,7 +147,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		_, err := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), err)
 	}}, Invitation: organization.InvitationConfig{Audience: "organization-invitation", Lifetime: 48 * time.Hour, MaximumPending: 100}, Admission: organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000}, Sessions: sessions, Authorization: policy, Coordinator: coordinator, Risk: counters, Issuer: issuerpg.IssuerConfig{Crypto: capability.ServiceConfig{Issuer: origin, Signer: signer, Resolver: resolver, Clock: time.Now, Limits: limits}, Audience: "organization-invitation", CurrentReplayKeyVersion: 1, RetainedReplayKeys: map[uint32][32]byte{1: keys["capability-replay"]}, PreparationTimeout: time.Second}, Preparation: issuerpg.IssuancePreparationConfig{Deployment: "organization-invitation", ActiveEnvelopeKey: "capability-envelope", EnvelopeKeys: map[string][]byte{"capability-envelope": material("capability-envelope")}, VerificationKeys: []issuerpg.PreparationVerificationKey{{ID: "local-baseline", HMAC: material("capability-signing")}}, Clock: time.Now}, Delivery: organizationpg.InvitationDeliveryConfig{Owner: deliverer, Status: status, Renderer: renderer, Policy: deliveryPolicy, PolicyVersion: 2, ProviderVersion: 2, StatusPolicyVersion: 9, TemplateID: "organization-invitation", TemplateVersion: 1, LocaleChain: []string{"en"}, ScopeKey: keys["verification-scope"], Endpoint: origin + "/invitation"}}
-	if selectedProfile == "expire" {
+	if selectedProfile == "expire" || selectedProfile == "resend" {
 		configuration.Invitation.ExpirationReasons = []identity.PolicyReason{"security-withdrawal", "administrative-cleanup"}
 	}
 	service, err := organizationpg.NewInvitationService(repository, configuration)
@@ -173,10 +178,6 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 	worker, err := status.NewWorker(deliverypg.WorkerConfig{ProviderConfigVersion: 2, Scope: authorization.DecisionContext{PolicyRevision: 9, CorrelationID: "invitation-worker", Request: authorization.Request{Tenant: baselineTenant, Subject: authorization.Subject{Kind: authorization.SubjectServiceAccount, ID: "invitation-worker"}, Action: "identity.delivery.process", Resource: authorization.Resource{Type: "identity.delivery-worker", ID: "invitation-worker"}}}}, mailbox)
 	if err != nil {
 		t.Fatal(err)
-	}
-	type issued struct {
-		org, id organization.ID
-		proof   capability.Proof
 	}
 	sendInvitation := func(orgID organization.ID, orgVersion uint64) issued {
 		t.Helper()
@@ -227,6 +228,32 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			t.Fatal("genuine owner organization failed", e)
 		}
 		return sendInvitation(organization.ID(o), 1)
+	}
+	if selectedProfile == "resend" {
+		populated := issue("resend-populated")
+		var history migrationList
+		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}, organizationpg.InvitationResendMigrationSource{Version: 7009}} {
+			steps, e := source.Load(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			history = append(history, steps...)
+		}
+		runner, e := migrations.NewRunner(history, backend)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("populated resend upgrade", e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("resend migration replay", e)
+		}
+		if len(administrators) != 1 {
+			t.Fatal("genuine third administrator missing")
+		}
+		exerciseInvitationResend(t, invitationResendConsumer{ctx: ctx, pool: pool, organizations: organizations, service: service, configuration: configuration, newService: newService, issue: issue, worker: worker, mailbox: mailbox, limits: limits, owner: owner, recipient: recipient, ownerID: ownerID, recipientID: recipientID, signinOwner: signinOwner, signinRecipient: signinRecipient, administrator: administrators[0], populated: populated, statusPolicy: statusPolicy, signer: countedSigner})
+		return
 	}
 	if selectedProfile == "expire" {
 		populated := issue("expire-populated")

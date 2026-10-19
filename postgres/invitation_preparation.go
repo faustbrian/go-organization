@@ -58,7 +58,7 @@ func (a *invitationAdmission) Generate(ctx context.Context, generation uint64) (
 	return a.phase.generate(ctx, generation)
 }
 func (p *invitationPhase) PrepareFeatureAdmission(ctx context.Context, c identity.Command) (kernel.FeaturePreparationAdmission, error) {
-	if c != p.command || p.input.Operation != organization.InvitationSend {
+	if c != p.command || !invitationIssuance(p.input.Operation) {
 		return nil, identity.InvalidInputError{Field: "invitation"}
 	}
 	a := &invitationAdmission{p}
@@ -72,7 +72,7 @@ func (p *invitationPhase) RestoreFeatureAdmission(ctx context.Context, c identit
 	return a, a.Check(ctx)
 }
 func (p *invitationPhase) ValidateFeaturePreparation(c identity.Command, plan kernel.CommandPlan) error {
-	if p.input.Operation != organization.InvitationSend {
+	if !invitationIssuance(p.input.Operation) {
 		return identity.InvalidInputError{Field: "invitation"}
 	}
 	return p.ValidateFeatureCommand(c, plan)
@@ -81,7 +81,7 @@ func (*invitationPhase) GenerateFeaturePreparation(context.Context, identity.Com
 	return nil, identity.InvalidInputError{Field: "invitation"}
 }
 func (p *invitationPhase) RestoreFeaturePreparation(ctx context.Context, c identity.Command, generation uint64, wire []byte) (identity.Command, kernel.CommandPlan, error) {
-	if c != p.command || p.input.Operation != organization.InvitationSend {
+	if c != p.command || !invitationIssuance(p.input.Operation) {
 		return identity.Command{}, kernel.CommandPlan{}, identity.InvalidInputError{Field: "invitation"}
 	}
 	if err := p.restore(ctx, generation, wire); err != nil {
@@ -147,7 +147,7 @@ func (p *invitationPhase) generate(ctx context.Context, generation uint64) (out 
 	b := x.Binding
 	i := x.Invitation.Record
 	now := p.occurred.UTC().Truncate(time.Second)
-	payload := capability.Payload{Version: 1, Issuer: p.service.config.Issuer.Crypto.Issuer, Audiences: []string{p.service.config.Invitation.Audience}, Subject: string(b.UserID), Resource: b.RecordID, Operation: organization.InvitationAccept.Descriptor().OperationID, IssuedAt: now, NotBefore: now, ExpiresAt: i.ExpiresAt, Tenant: string(b.TenantID), CorrelationID: string(b.CommandID), MaxUses: 1, Caveats: map[string]string{"organization.id": string(i.OrganizationID), "organization.invitation-version": "1", "organization.role": "member", "organization.recipient-identifier": string(i.RecipientIdentifierID), "organization.recipient-identifier-version": strconv.FormatUint(i.RecipientIdentifierVersion, 10)}}
+	payload := capability.Payload{Version: 1, Issuer: p.service.config.Issuer.Crypto.Issuer, Audiences: []string{p.service.config.Invitation.Audience}, Subject: string(b.UserID), Resource: b.RecordID, Operation: organization.InvitationAccept.Descriptor().OperationID, IssuedAt: now, NotBefore: now, ExpiresAt: i.ExpiresAt, Tenant: string(b.TenantID), CorrelationID: string(b.CommandID), MaxUses: 1, Caveats: map[string]string{"organization.id": string(i.OrganizationID), "organization.invitation-version": strconv.FormatUint(i.Version+1, 10), "organization.role": "member", "organization.recipient-identifier": string(i.RecipientIdentifierID), "organization.recipient-identifier-version": strconv.FormatUint(i.RecipientIdentifierVersion, 10)}}
 	issued, err := p.service.issuer.Prepare(ctx, b, []capability.Payload{payload})
 	if err != nil {
 		return nil, err

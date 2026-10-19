@@ -34,12 +34,12 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 	if members < 1 || owners < 1 || owners > members {
 		return 0, identity.UnavailableError{}
 	}
-	if x.Operation == organization.InvitationSend || x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
+	if invitationIssuance(x.Operation) || x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		actor, err := readMember(ctx, w, b.TenantID, x.Organization.ID, identity.UserID(b.ActorID))
 		if err != nil {
 			return 0, err
 		}
-		if !actor.Active || actor.Role != x.Actor.Role || actor.Role != organization.RoleOwner && ((x.Operation != organization.InvitationCancel && x.Operation != organization.InvitationExpire) || actor.Role != organization.RoleAdministrator) || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
+		if !actor.Active || actor.Role != x.Actor.Role || actor.Role != organization.RoleOwner && ((x.Operation != organization.InvitationCancel && x.Operation != organization.InvitationExpire && x.Operation != organization.InvitationResend) || actor.Role != organization.RoleAdministrator) || actor.Version != x.Actor.Version || actor.AuthorizationVersion != x.Actor.AuthorizationVersion {
 			return 0, identity.ForbiddenError{}
 		}
 		scope, err := OrganizationAuthorityScope(b.TenantID, x.Organization.ID, actor.UserID)
@@ -82,11 +82,32 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 			return 0, identity.ForbiddenError{}
 		}
 	}
+	if x.Operation == organization.InvitationResend {
+		if err := p.currentResend(ctx, w); err != nil {
+			return 0, err
+		}
+	}
 	return members, nil
 }
 
+func (p *invitationPhase) currentResend(ctx context.Context, w kernel.Work) error {
+	i := p.input.Invitation.Record
+	if i.Version == 0 || i.Version >= ^uint64(0)-1 || i.IssuedVersion != i.Version {
+		return identity.ForbiddenError{}
+	}
+	var matches bool
+	rows, err := w.Query(ctx, `SELECT state='pending' AND version=$4::numeric AND issued_version=version AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member' FROM organization.invitations WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 FOR UPDATE`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
+	if err = one(rows, err, &matches); err != nil {
+		return err
+	}
+	if !matches {
+		return identity.ConflictError{}
+	}
+	return nil
+}
+
 func (p *invitationPhase) AdmitFeaturePreparation(ctx context.Context, w kernel.Work, c identity.Command) error {
-	if c != p.command || p.input.Operation != organization.InvitationSend {
+	if c != p.command || !invitationIssuance(p.input.Operation) {
 		return identity.InvalidInputError{Field: "invitation"}
 	}
 	if err := p.admit(ctx, w, false); err != nil {
@@ -102,6 +123,7 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 	if err := w.RequireFeatureCommand(ctx, p, c); err != nil {
 		return identity.FeatureReceipt{}, err
 	}
+	p.applied = true
 	if err := p.admit(ctx, w, false); err != nil {
 		return identity.FeatureReceipt{}, err
 	}
@@ -119,7 +141,7 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 	if err != nil {
 		return identity.FeatureReceipt{}, err
 	}
-	if x.Operation == organization.InvitationSend {
+	if invitationIssuance(x.Operation) {
 		err = p.send(ctx, w)
 	} else if x.Operation == organization.InvitationCancel {
 		err = p.cancel(ctx, w)
@@ -138,6 +160,14 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		return identity.FeatureReceipt{}, err
 	}
 	i := x.Invitation.Record
+	if x.Operation == organization.InvitationResend {
+		delivery, err := p.execution.delivery.Plan()
+		if err != nil || len(delivery.Intents) != 1 {
+			return identity.FeatureReceipt{}, identity.InvalidInputError{Field: "invitation"}
+		}
+		_, err = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,invitation_id,user_id,actor_id,operation,fingerprint,before_version,after_version,delivery_effect_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11)`, string(b.CommandID), string(b.TenantID), string(x.Organization.ID), b.RecordID, string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(i.Version, 10), strconv.FormatUint(i.Version+1, 10), delivery.Intents[0].EffectID)
+		return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, err
+	}
 	if _, err = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,invitation_id,user_id,actor_id,operation,fingerprint,before_version,after_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric)`, string(b.CommandID), string(b.TenantID), string(x.Organization.ID), b.RecordID, string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(i.Version, 10), strconv.FormatUint(i.Version+1, 10)); err != nil {
 		return identity.FeatureReceipt{}, err
 	}
@@ -149,7 +179,7 @@ func (p *invitationPhase) expire(ctx context.Context, w kernel.Work) error {
 	// API_OPERATIONS declares explicit expiry of a pending row, not merely an
 	// elapsed-deadline projection. The shared pending/version fence revokes all
 	// old grants and serializes acceptance without touching membership authority.
-	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='expired',version=2,expired_at=clock_timestamp(),expiry_reason=$10 WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy), string(p.input.Invitation.ExpirationReason))
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='expired',version=version+1,expired_at=clock_timestamp(),expiry_reason=$10 WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy), string(p.input.Invitation.ExpirationReason))
 	if err != nil {
 		return err
 	}
@@ -164,7 +194,7 @@ func (p *invitationPhase) reject(ctx context.Context, w kernel.Work) error {
 	// As with cancellation, the native terminal row is the revocation fence.
 	// Acceptance locks this same row before membership and cannot consume the
 	// original capability after rejection, even if its signature remains valid.
-	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='rejected',version=2,rejected_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='rejected',version=version+1,rejected_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
 	if err != nil {
 		return err
 	}
@@ -179,7 +209,7 @@ func (p *invitationPhase) cancel(ctx context.Context, w kernel.Work) error {
 	// The pending/version fence is shared with acceptance. The original issued
 	// capability may remain cryptographically valid, but cannot cross this
 	// terminal transition; any concurrent capability consumption rolls back.
-	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='cancelled',version=2,cancelled_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='cancelled',version=version+1,cancelled_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
 	if err != nil {
 		return err
 	}
@@ -219,6 +249,16 @@ func (p *invitationPhase) send(ctx context.Context, w kernel.Work) error {
 	b := x.Binding
 	i := x.Invitation.Record
 	g := issue.Grants[0]
+	if x.Operation == organization.InvitationResend {
+		n, err := w.Exec(ctx, `UPDATE organization.invitations SET version=version+1,issued_version=issued_version+1,delivery_effect_id=$10,capability_envelope=$11,capability_replay_key_version=$12 WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND issued_version=version AND version<18446744073709551614 AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy), delivery.Intents[0].EffectID, g.ProofFingerprint[:], int64(g.ReplayKeyVersion))
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return identity.ConflictError{}
+		}
+		return nil
+	}
 	_, err = w.Exec(ctx, `INSERT INTO organization.invitations(tenant_id,organization_id,invitation_id,recipient_user_id,recipient_identifier_id,recipient_identifier_version,created_by,role,state,version,expires_at,delivery_effect_id,capability_envelope,capability_replay_key_version) VALUES($1,$2,$3,$4,$5,$6::numeric,$7,'member','pending',1,$8,$9,$10,$11)`, string(b.TenantID), string(i.OrganizationID), string(i.ID), string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(b.ActorID), i.ExpiresAt, delivery.Intents[0].EffectID, g.ProofFingerprint[:], int64(g.ReplayKeyVersion))
 	return err
 }
@@ -243,7 +283,7 @@ func (p *invitationPhase) accept(ctx context.Context, w kernel.Work, members int
 	if err != nil {
 		return err
 	}
-	if state != "pending" || version != "1" {
+	if state != "pending" || version != strconv.FormatUint(i.Version, 10) {
 		return identity.ConflictError{}
 	}
 	if user != string(b.UserID) || identifier != string(i.RecipientIdentifierID) || identifierVersion != strconv.FormatUint(i.RecipientIdentifierVersion, 10) || role != "member" || creator != string(i.CreatedBy) || !expires.Equal(i.ExpiresAt) || len(envelope) != 32 || subtle.ConstantTimeCompare(envelope, p.envelope[:]) != 1 || replayVersion == nil || *replayVersion != int64(p.replayVersion) {
@@ -290,7 +330,7 @@ func (p *invitationPhase) accept(ctx context.Context, w kernel.Work, members int
 	if n != 1 {
 		return identity.ConflictError{}
 	}
-	n, err = w.Exec(ctx, `UPDATE organization.invitations SET state='accepted',version=2,accepted_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=1 AND expires_at>clock_timestamp()`, string(b.TenantID), string(i.OrganizationID), string(i.ID))
+	n, err = w.Exec(ctx, `UPDATE organization.invitations SET state='accepted',version=version+1,accepted_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at>clock_timestamp()`, string(b.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10))
 	if err != nil {
 		return err
 	}

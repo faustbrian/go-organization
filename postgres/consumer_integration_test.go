@@ -158,6 +158,10 @@ func TestOrganizationGenuineInvitationExpiryConsumer(t *testing.T) {
 	exerciseGenuinePasswordConsumer(t, "expire")
 }
 
+func TestOrganizationGenuineInvitationResendConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "resend")
+}
+
 func TestOrganizationGenuineMemberRoleUpdateConsumer(t *testing.T) {
 	exerciseGenuinePasswordConsumer(t, "member-role")
 }
@@ -364,6 +368,10 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
+	var resendAdministrator invitationResendAdministrator
+	if invitationProfile == "resend" {
+		resendAdministrator.authentication, resendAdministrator.id, resendAdministrator.signin, _ = register()
+	}
 	if ownerID == memberID {
 		t.Fatal("real registrations did not create distinct users")
 	}
@@ -431,7 +439,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	if invitationProfile != "existing" {
-		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile)
+		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile, resendAdministrator)
 		return
 	}
 	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
