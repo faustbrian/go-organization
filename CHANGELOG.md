@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add owner/administrator static member-role updates with exact organization
+  and membership versions, final-owner protection and current role authority.
+  Only owners may grant or demote owners; unchanged roles conflict.
+
 - Add owner/administrator invitation expiry with exact versions and registered
   reason codes. Explicit expired version2 is terminal and distinct from natural
   deadline projection at version1; prior invitation APIs remain unchanged.

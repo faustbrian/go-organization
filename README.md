@@ -7,7 +7,7 @@
 `go-organization` supplies storage-neutral organization policy and a
 [native PostgreSQL adapter](postgres/README.md). The selected profile creates
 organizations, updates bounded names/slugs, admits existing active users,
-lists members and removes members
+updates static membership roles, lists members and removes members
 while protecting the last owner.
 
 ## API and selection
@@ -43,6 +43,10 @@ contracts are adapter boundaries, not application workflow instructions.
   conflict within the same tenant, including reserved lifecycle states.
 - `PrepareAddMember` requires an existing active target user, static role and
   expected organization/member versions. Administrators cannot add owners.
+- `PrepareUpdateMember` changes an exact active membership's static role with
+  expected organization/member versions. Only owners may grant or demote owners;
+  the final recovery-capable owner cannot be demoted. See
+  [static role updates](docs/member-role-update.md) for authority and recovery.
 - `PrepareRemoveMember` requires exact versions and retains a tombstone. Only
   owners remove owners; the final owner cannot be removed.
 - `PrepareLeaveMember` accepts an explicit organization/version and derives self

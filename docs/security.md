@@ -1,7 +1,7 @@
 # Experimental security boundary
 
 The selected explicit-organization profile implements create/read and membership
-admission/list/removal. It is not a stable release or complete organization unit.
+admission/static-role-update/list/removal. It is not a stable release or complete organization unit.
 The opt-in membership-only team profile adds bounded creation, current-member
 admission/removal and team/member/mine reads. It confers no independent roles or
 permissions. Native commits fence actor and compatible target authority and
@@ -24,7 +24,10 @@ existing Work lock, separately from actor/session authority.
 Membership removal advances organization-scoped subject authority and retained
 member versions, never unrelated global user/credential epochs. No shared-cache
 invalidation is claimed. Tenant-serialized writes protect cardinality and the
-last active owner. The native Coordinator exclusively owns command claims,
+last active owner, including competing static role demotions. Owners are the
+selected static profile's recovery administrators. Only owners may grant or
+demote owners; ordinary administrators cannot mutate owners or escalate to owner.
+The native Coordinator exclusively owns command claims,
 rollback, commit, replay and scoped recovery. Domain, scoped authority, audit and
 lifecycle outbox changes share its transaction. Participant effect rows are
 exact-command evidence, not a second journal. Unknown outcomes require primary

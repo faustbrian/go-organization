@@ -30,7 +30,7 @@ var (
 	ErrForbidden = errors.New("organization: forbidden")
 	// ErrConflict rejects duplicate or stale optimistic transitions.
 	ErrConflict = errors.New("organization: conflict")
-	// ErrLastOwner denies removal of the final recovery-capable owner.
+	// ErrLastOwner denies removal or demotion of the final recovery-capable owner.
 	ErrLastOwner = errors.New("organization: last owner")
 	// ErrLimit denies a configured organization or membership cardinality limit.
 	ErrLimit = errors.New("organization: limit exceeded")
@@ -59,7 +59,7 @@ func (o Operation) Descriptor() identity.FeatureOperation {
 	if teamMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-team", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
-	if o != Create && o != Update && o != AddMember && o != RemoveMember && o != LeaveMember && o != OwnerTransfer {
+	if o != Create && o != Update && o != AddMember && o != UpdateMember && o != RemoveMember && o != LeaveMember && o != OwnerTransfer {
 		return invitationDescriptor(o)
 	}
 	return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-membership", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
@@ -96,6 +96,7 @@ const (
 	Create       Operation = "identity.organization.create"
 	Update       Operation = "identity.organization.update"
 	AddMember    Operation = "identity.organization.member.add"
+	UpdateMember Operation = "identity.organization.member.update"
 	RemoveMember Operation = "identity.organization.member.remove"
 	LeaveMember  Operation = "identity.organization.member.leave"
 	Get          Operation = "identity.organization.get"
@@ -239,6 +240,9 @@ type UpdateRequest struct {
 // Add requires Role and preserves an existing removed membership's version (zero
 // only for a never-admitted user). Remove requires the active member's version;
 // it never treats arbitrary absence as successful removal.
+// Update requires a different valid static Role and the exact active membership
+// version. Only owners may grant owner or change an owner; at least one owner
+// (the static profile's recovery administrator) must survive every transition.
 type MemberRequest struct {
 	Authentication                     Authentication
 	CommandID                          identity.CommandID
@@ -353,6 +357,15 @@ func (s *Service) PrepareAddMember(ctx context.Context, r MemberRequest) (Comman
 	return s.prepareMember(ctx, r, AddMember)
 }
 
+// PrepareUpdateMember freezes one exact active membership's static role change.
+// Current owners and administrators may change nonowners; only owners may grant
+// or demote owners. Preparation writes nothing. The native owner must serialize
+// the last-owner invariant with removal, leave and ownership transfer and advance
+// both organization policy and the changed subject's scoped authority atomically.
+func (s *Service) PrepareUpdateMember(ctx context.Context, r MemberRequest) (Command, error) {
+	return s.prepareMember(ctx, r, UpdateMember)
+}
+
 // PrepareUpdate authenticates the human actor and checks current organization
 // membership and action policy. Preparation writes nothing; the native adapter
 // must recheck current authority and the expected version under its own locks.
@@ -416,7 +429,7 @@ func (s *Service) prepareMember(ctx context.Context, r MemberRequest, op Operati
 			out, err = Command{}, ErrUnavailable
 		}
 	}()
-	if s == nil || ctx == nil || !safeID(string(r.OrganizationID)) || op != LeaveMember && !safeID(string(r.UserID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || op == AddMember && !r.Role.Valid() || op == RemoveMember && (r.Role != "" || r.MemberVersion == 0) {
+	if s == nil || ctx == nil || !safeID(string(r.OrganizationID)) || op != LeaveMember && !safeID(string(r.UserID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || (op == AddMember || op == UpdateMember) && !r.Role.Valid() || op == RemoveMember && (r.Role != "" || r.MemberVersion == 0) || op == UpdateMember && (r.MemberVersion == 0 || r.MemberVersion == ^uint64(0)) {
 		return out, ErrInvalidInput
 	}
 	if _, err = identity.ParseCommandID(string(r.CommandID)); err != nil {
@@ -444,19 +457,21 @@ func (s *Service) prepareMember(ctx context.Context, r MemberRequest, op Operati
 	if err = s.authorize(bounded, actor, r.Authentication.TenantID, r.OrganizationID, v.Organization.Version, op, r.CorrelationID); err != nil {
 		return out, err
 	}
-	if op == LeaveMember {
+	if op == LeaveMember || op == UpdateMember {
 		if err = bounded.Err(); err != nil {
 			return out, err
 		}
 		if observed.ValidateAt(s.config.Clock.Now()) != nil {
 			return out, ErrForbidden
 		}
-		r.MemberVersion = v.Actor.Version
+		if op == LeaveMember {
+			r.MemberVersion = v.Actor.Version
+		}
 	}
 	if v.Organization.Version != r.OrganizationVersion || v.Target.Version != r.MemberVersion {
 		return out, ErrConflict
 	}
-	if v.TargetUser.Validate(r.Authentication.TenantID) != nil || v.TargetUser.ID != r.UserID || (op == AddMember || op == LeaveMember) && v.TargetUser.Status != identity.StatusActive {
+	if v.TargetUser.Validate(r.Authentication.TenantID) != nil || v.TargetUser.ID != r.UserID || (op == AddMember || op == LeaveMember || op == UpdateMember) && v.TargetUser.Status != identity.StatusActive {
 		return out, ErrForbidden
 	}
 	if op == AddMember {
@@ -473,7 +488,15 @@ func (s *Service) prepareMember(ctx context.Context, r MemberRequest, op Operati
 		if v.Target.Role == RoleOwner && v.Actor.Role != RoleOwner {
 			return out, ErrForbidden
 		}
-		if v.Target.Role == RoleOwner && v.OwnerCount < 2 {
+		if op == UpdateMember {
+			if !v.Target.Role.Valid() || v.Target.AuthorizationVersion == 0 || r.Role == RoleOwner && v.Actor.Role != RoleOwner {
+				return out, ErrForbidden
+			}
+			if v.Target.Role == r.Role {
+				return out, ErrConflict
+			}
+		}
+		if v.Target.Role == RoleOwner && v.OwnerCount < 2 && (op != UpdateMember || r.Role != RoleOwner) {
 			return out, ErrLastOwner
 		}
 	}
