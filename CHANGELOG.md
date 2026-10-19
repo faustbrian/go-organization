@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add exact-version invitation rejection for the authenticated intended verified
+  recipient without membership or invitation proof, with terminal rejected metadata.
+
 - Add current-recipient invitation listing with bounded stable pages, explicit
   lifecycle visibility, current verified-identifier binding and late-authority
   revalidation, without organization membership or sensitive delivery material.

@@ -12,6 +12,13 @@ while protecting the last owner.
 
 ## API and selection
 
+`InvitationService.PrepareReject` admits only the authenticated intended verified
+recipient of an exact pending invitation, using original organization/invitation
+versions without membership or an invitation proof. The native adapter atomically
+stores rejected version 2 with canonical audit/event effects; the original
+capability can no longer authorize acceptance. See the adapter's
+[migration and recovery requirements](postgres/README.md#recipient-invitation-rejection).
+
 Use the native `postgres.Service` for durable operations. The root `Service`
 owns real session authentication, external policy, validation and immutable
 command preparation. Its `Repository` and exact `UnitOfWork.Execute`/`Recover`

@@ -16,6 +16,7 @@ const (
 	InvitationSend   Operation = "identity.organization.invitation-send"
 	InvitationAccept Operation = "identity.organization.invitation.accept"
 	InvitationCancel Operation = "identity.organization.invitation.cancel"
+	InvitationReject Operation = "identity.organization.invitation.reject"
 	InvitationGet    Operation = "identity.organization.invitation.get"
 	InvitationList   Operation = "identity.organization.invitation.list"
 )
@@ -29,6 +30,8 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 		schema = "organization-invitation-accept"
 	case InvitationCancel:
 		schema = "organization-invitation-cancel"
+	case InvitationReject:
+		schema = "organization-invitation-reject"
 	default:
 		return identity.FeatureOperation{}
 	}
@@ -37,7 +40,8 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 
 // InvitationStatus describes the selected durable lifecycle. Zero is invalid.
 // Expired is a non-authorizing projection of exclusive expiry, not an exposed
-// expire/resend command. Accepted and cancelled records never become pending again.
+// expire/resend command. Accepted, cancelled and rejected records never become
+// pending again.
 type InvitationStatus uint8
 
 const (
@@ -45,6 +49,7 @@ const (
 	InvitationAccepted
 	InvitationExpired
 	InvitationCancelled
+	InvitationRejected
 )
 
 // Invitation is safe scalar metadata. It contains neither a transport address
@@ -357,7 +362,7 @@ func (s *InvitationService) PrepareAccept(ctx context.Context, r InvitationAccep
 }
 
 func validInvitation(i Invitation, tenant identity.TenantID, org ID) bool {
-	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled) && i.Version == 2
+	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled || i.Status == InvitationRejected) && i.Version == 2
 	return safeID(string(i.ID)) && i.TenantID == tenant && i.OrganizationID == org && safeID(string(i.RecipientUserID)) && safeID(string(i.RecipientIdentifierID)) && i.RecipientIdentifierVersion > 0 && safeID(string(i.CreatedBy)) && i.Role == RoleMember && versionValid && !i.ExpiresAt.IsZero() && i.ExpiresAt.Equal(i.ExpiresAt.UTC().Truncate(time.Second))
 }
 
