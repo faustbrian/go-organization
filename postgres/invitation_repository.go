@@ -45,13 +45,13 @@ func (r *InvitationRepository) ReadInvitation(ctx context.Context, q organizatio
 	if ctx == nil || r == nil || r.organizations == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) || !scope(string(q.InvitationID)) || q.Cursor != "" || q.Limit != 0 {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
-	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel {
+	if q.Operation != organization.InvitationSend && q.Operation != organization.InvitationAccept && q.Operation != organization.InvitationGet && q.Operation != organization.InvitationCancel && q.Operation != organization.InvitationReject {
 		return organization.InvitationSnapshot{}, organization.ErrInvalidInput
 	}
 	bounded, cancel := context.WithTimeout(ctx, r.organizations.maximum)
 	defer cancel()
 	var v organization.InvitationSnapshot
-	if q.Operation == organization.InvitationAccept {
+	if q.Operation == organization.InvitationAccept || q.Operation == organization.InvitationReject {
 		if q.RecipientUserID != q.ActorID || q.RecipientIdentifierID != "" {
 			return v, organization.ErrInvalidInput
 		}
@@ -212,6 +212,8 @@ func scanInvitation(row invitationScanner, tenant identity.TenantID, org organiz
 		i.Status = organization.InvitationAccepted
 	case "cancelled":
 		i.Status = organization.InvitationCancelled
+	case "rejected":
+		i.Status = organization.InvitationRejected
 	default:
 		return organization.InvitationDelivery{}, organization.ErrUnavailable
 	}

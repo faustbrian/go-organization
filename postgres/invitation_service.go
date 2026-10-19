@@ -48,7 +48,7 @@ type InvitationDeliveryConfig struct {
 // kernel with actual capability, audit, risk and paired-lifecycle owners.
 // Session/issuer/envelope keys and borrowed owners must outlive pending work.
 // Install membership, invitation-read, invitation-capability and (for cancel)
-// invitation-cancellation migrations plus
+// invitation-cancellation and (for reject) invitation-rejection migrations plus
 // all selected shared owner migrations before invoking this service.
 type InvitationServiceConfig struct {
 	Core          organization.Config
@@ -73,7 +73,7 @@ func (InvitationServiceConfig) MarshalText() ([]byte, error) {
 	return nil, organization.ErrSensitiveSerialization
 }
 
-// InvitationService owns native send/accept/cancel composition, never another token
+// InvitationService owns native send/accept/cancel/reject composition, never another token
 // engine, journal, provider or authentication authority. It starts no goroutine.
 // Configuration is immutable; independent preparations may run concurrently,
 // while each PreparedInvitation is serial-use and preserves original custody.
@@ -243,6 +243,20 @@ func (s *InvitationService) PrepareCancel(ctx context.Context, r organization.In
 		return PreparedInvitation{}, organization.ErrInvalidInput
 	}
 	c, err := s.root.PrepareCancel(ctx, r)
+	if err != nil {
+		return PreparedInvitation{}, err
+	}
+	return s.prepare(ctx, c, network)
+}
+
+// PrepareReject admits the exact authenticated verified recipient, not an
+// organization administrator or invitation bearer. Execute atomically denies
+// later acceptance through the existing invitation-row version fence.
+func (s *InvitationService) PrepareReject(ctx context.Context, r organization.InvitationRejectRequest, network string) (PreparedInvitation, error) {
+	if s == nil {
+		return PreparedInvitation{}, organization.ErrInvalidInput
+	}
+	c, err := s.root.PrepareReject(ctx, r)
 	if err != nil {
 		return PreparedInvitation{}, err
 	}

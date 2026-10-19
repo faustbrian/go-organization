@@ -225,6 +225,349 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
+	if selectedProfile == "reject" {
+		var history migrationList
+		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}} {
+			steps, e := source.Load(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			history = append(history, steps...)
+		}
+		populated := issue("reject-populated")
+		acceptedBeforeUpgrade := issue("reject-already-accepted")
+		acceptBeforeUpgrade, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: acceptedBeforeUpgrade.id, OrganizationID: acceptedBeforeUpgrade.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: acceptedBeforeUpgrade.proof, CorrelationID: "reject-before-upgrade"}, "127.0.0.1")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if r, e := service.Execute(ctx, acceptBeforeUpgrade); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+			t.Fatal("existing acceptance before schema upgrade", e)
+		}
+		runner, e := migrations.NewRunner(history, backend)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("populated rejection upgrade", e)
+		}
+		if _, e = runner.Up(ctx); e != nil {
+			t.Fatal("rejection migration replay", e)
+		}
+		if v, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: acceptedBeforeUpgrade.org, ID: acceptedBeforeUpgrade.id, CorrelationID: "reject-preserve-accepted"}); e != nil || v.Invitation.Status != organization.InvitationAccepted || v.Invitation.Version != 2 {
+			t.Fatal("rejection migration changed accepted history", e)
+		}
+		request := func(inv issued) organization.InvitationRejectRequest {
+			return organization.InvitationRejectRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, CorrelationID: "reject-pending"}
+		}
+		t.Run("genuine recipient terminal rejection", func(t *testing.T) {
+			inv := populated
+			for _, variant := range []string{"owner", "tenant", "organization", "stale-org", "stale-invitation"} {
+				r := request(inv)
+				switch variant {
+				case "owner":
+					r.Authentication = owner
+				case "tenant":
+					r.Authentication.TenantID = "foreign"
+				case "organization":
+					r.OrganizationID = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+				case "stale-org":
+					r.OrganizationVersion++
+				case "stale-invitation":
+					r.InvitationVersion++
+				}
+				if _, e := service.PrepareReject(ctx, r, "127.0.0.1"); e == nil {
+					t.Fatal("unauthorized rejection admitted", variant)
+				}
+			}
+			accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "reject-predecessor"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			prepared, e := service.PrepareReject(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal("public genuine recipient rejection prepare", e)
+			}
+			result, e := service.Execute(ctx, prepared)
+			if e != nil || result.Receipt.Outcome != identity.CommitOutcomeCommitted || result.Receipt.Feature.BeforeVersion != 1 || result.Receipt.Feature.AfterVersion != 2 {
+				t.Fatal("recipient rejection failed", e)
+			}
+			if r, e := service.Execute(ctx, accept); e == nil || r.Receipt.Outcome == identity.CommitOutcomeCommitted {
+				t.Fatal("rejected original capability accepted")
+			}
+			if _, e := newService(pool).PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "reject-reconstructed"}, "127.0.0.1"); e == nil {
+				t.Fatal("reconstructed service accepted rejected proof")
+			}
+			if r, e := service.Execute(ctx, prepared); e != nil || r.Receipt.AuditEventID != result.Receipt.AuditEventID || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("keyed rejection retry changed", e)
+			}
+			handle, e := prepared.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			if r, e := newService(pool).Recover(ctx, recipient, handle); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+				t.Fatal("code-free rejection recovery", e)
+			}
+			if _, e := newService(pool).Recover(ctx, owner, handle); e == nil {
+				t.Fatal("owner recovered recipient command")
+			}
+			metadata, e := service.Get(ctx, organization.InvitationReadRequest{Authentication: owner, OrganizationID: inv.org, ID: inv.id, CorrelationID: "rejected-metadata"})
+			if e != nil || metadata.Invitation.Status != organization.InvitationRejected || metadata.Invitation.Version != 2 {
+				t.Fatal("rejected metadata missing", e)
+			}
+			mine, e := service.ListMine(ctx, organization.InvitationListMineRequest{Authentication: recipient, Limit: 10, CorrelationID: "rejected-list-mine"})
+			foundRejected := false
+			for _, i := range mine.Invitations {
+				if i.ID == inv.id && i.Status == organization.InvitationRejected {
+					foundRejected = true
+				}
+			}
+			if e != nil || !foundRejected {
+				t.Fatal("rejected recipient listing missing", e)
+			}
+			var members, effects, audits, events, orgVersion int
+			id, e := base64.RawURLEncoding.DecodeString(string(result.Receipt.Binding.CommandID))
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = pool.Raw().QueryRow(ctx, `SELECT (SELECT count(*) FROM organization.memberships WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3),(SELECT count(*) FROM organization.command_effects WHERE command_id=$4),(SELECT count(*) FROM audit.identity_command_bindings b JOIN audit.records r ON r.record_id=b.event_id WHERE b.command_id=$5 AND r.action='identity.organization.reject_invitation' AND r.actor_id=$3 AND r.subject_id=$6 AND r.outcome=1),(SELECT count(*) FROM public.identity_outbox_bindings b JOIN public.outbox_messages m ON m.id=b.effect_id WHERE b.command_id=$5 AND m.topic='invitation.rejected.v1'),version::integer FROM organization.organizations WHERE tenant_id=$1 AND organization_id=$2`, string(baselineTenant), string(inv.org), string(recipientID), string(result.Receipt.Binding.CommandID), id, string(inv.id)).Scan(&members, &effects, &audits, &events, &orgVersion); e != nil || members != 0 || effects != 1 || audits != 1 || events != 1 || orgVersion != 1 {
+				t.Fatal("rejection changed membership/organization or lost atomic effects", e)
+			}
+		})
+		t.Run("accept versus reject contention", func(t *testing.T) {
+			inv := issue("reject-race")
+			reject, e := service.PrepareReject(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-reject-race"}, "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			var wg sync.WaitGroup
+			var wins atomic.Int32
+			for _, p := range []organizationpg.PreparedInvitation{reject, accept} {
+				wg.Add(1)
+				go func(p organizationpg.PreparedInvitation) {
+					defer wg.Done()
+					r, e := service.Execute(ctx, p)
+					if e == nil && r.Receipt.Outcome == identity.CommitOutcomeCommitted {
+						wins.Add(1)
+					}
+				}(p)
+			}
+			wg.Wait()
+			var state string
+			var members, effects int
+			if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.memberships WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND state='active'),(SELECT count(*) FROM organization.command_effects WHERE invitation_id=$4 AND operation IN('identity.organization.invitation.accept','identity.organization.invitation.reject')) FROM organization.invitations WHERE tenant_id=$1 AND invitation_id=$4`, string(baselineTenant), string(inv.org), string(recipientID), string(inv.id)).Scan(&state, &members, &effects); e != nil || wins.Load() != 1 || effects != 1 || state != "accepted" && state != "rejected" || (state == "accepted") != (members == 1) {
+				t.Fatal("accept/reject did not select exactly one terminal effect", e)
+			}
+		})
+		for _, boundary := range []string{"audit", "event"} {
+			t.Run("rejection rollback "+boundary, func(t *testing.T) {
+				inv := issue("reject-rollback-" + boundary)
+				prepared, e := service.PrepareReject(ctx, request(inv), "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				table, condition := "audit.records", "NEW.action='identity.organization.reject_invitation' AND NEW.outcome=1"
+				if boundary == "event" {
+					table, condition = "public.outbox_messages", "NEW.topic='invitation.rejected.v1'"
+				}
+				if _, e = pool.Raw().Exec(ctx, `CREATE FUNCTION organization.reject_terminal_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF `+condition+` THEN RAISE EXCEPTION USING ERRCODE='23514',MESSAGE='controlled rejection effect failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_terminal_fixture BEFORE INSERT ON `+table+` FOR EACH ROW EXECUTE FUNCTION organization.reject_terminal_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				result, failure := service.Execute(ctx, prepared)
+				if _, e = pool.Raw().Exec(ctx, `DROP TRIGGER reject_terminal_fixture ON `+table+`; DROP FUNCTION organization.reject_terminal_fixture()`); e != nil {
+					t.Fatal(e)
+				}
+				if failure == nil || result.Receipt.Outcome == identity.CommitOutcomeCommitted {
+					t.Fatal("required rejection effect failure committed")
+				}
+				var state string
+				var effects int
+				if e := pool.Raw().QueryRow(ctx, `SELECT state,(SELECT count(*) FROM organization.command_effects WHERE invitation_id=$1 AND operation='identity.organization.invitation.reject') FROM organization.invitations WHERE tenant_id=$2 AND invitation_id=$1`, string(inv.id), string(baselineTenant)).Scan(&state, &effects); e != nil || state != "pending" || effects != 0 {
+					t.Fatal("rejection rollback retained terminal effect", e)
+				}
+				accept, e := service.PrepareAccept(ctx, organization.InvitationAcceptRequest{Authentication: recipient, CommandID: commandID(t), ID: inv.id, OrganizationID: inv.org, OrganizationVersion: 1, InvitationVersion: 1, Proof: inv.proof, CorrelationID: "accept-reject-rollback"}, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				if r, e := service.Execute(ctx, accept); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted {
+					t.Fatal("rollback consumed original invitation proof", e)
+				}
+			})
+		}
+		t.Run("rejection lost commit acknowledgment", func(t *testing.T) {
+			inv := issue("reject-lost-ack")
+			fault := new(commitResponseLoss)
+			faultPool, e := database.Connect(ctx, database.Config{DSN: os.Getenv("GOLIB_ORGANIZATION_TEST_POSTGRES_DSN"), MaxConns: 2, Configure: func(c *database.PoolConfig) error {
+				c.ConnConfig.Database = pool.Raw().Config().ConnConfig.Database
+				c.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+					conn, e := (&net.Dialer{}).DialContext(ctx, network, address)
+					if e != nil {
+						return nil, e
+					}
+					return &lossyCommitConn{Conn: conn, fault: fault}, nil
+				}
+				return nil
+			}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer func() {
+				cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				defer stop()
+				if e := faultPool.Close(cleanup); e != nil {
+					t.Error(e)
+				}
+			}()
+			faultService := newService(faultPool)
+			prepared, e := faultService.PrepareReject(ctx, request(inv), "127.0.0.1")
+			if e != nil {
+				t.Fatal(e)
+			}
+			handle, e := prepared.Recovery()
+			if e != nil {
+				t.Fatal(e)
+			}
+			wire, e := json.Marshal(handle)
+			if e != nil {
+				t.Fatal(e)
+			}
+			var restored organizationpg.InvitationRecovery
+			if json.Unmarshal(wire, &restored) != nil || restored != handle {
+				t.Fatal("safe rejection correlation changed")
+			}
+			fault.armed.Store(true)
+			result, e := faultService.Execute(ctx, prepared)
+			if e == nil || !fault.lost.Load() || result.Receipt.Outcome != identity.CommitOutcomeUnknown {
+				t.Fatal("lost rejection acknowledgment was not unknown", e)
+			}
+			if r, e := newService(pool).Recover(ctx, signinRecipient(), restored); e != nil || r.Receipt.Outcome != identity.CommitOutcomeCommitted || r.Receipt.Binding != restored.Binding {
+				t.Fatal("fresh-session code-free rejection recovery failed", e)
+			}
+		})
+		for _, withdrawal := range []string{"session", "identifier", "organization", "expiry"} {
+			t.Run("rejection current authority "+withdrawal, func(t *testing.T) {
+				inv := issue("reject-withdraw-" + withdrawal)
+				actual := signinRecipient()
+				r := request(inv)
+				r.Authentication = actual
+				prepared, e := service.PrepareReject(ctx, r, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				// This controlled fixture withdraws primary authority after genuine
+				// public preparation; it never fabricates a credential or grant.
+				switch withdrawal {
+				case "session":
+					token, e := session.ParseToken(actual.Bearer.Token())
+					if e != nil {
+						t.Fatal(e)
+					}
+					credential, e := session.NewCredential(session.CredentialBearer, token)
+					if e != nil {
+						t.Fatal(e)
+					}
+					observed, e := sessions.Get(ctx, session.GetRequest{TenantID: actual.TenantID, Credential: credential})
+					if e != nil {
+						t.Fatal(e)
+					}
+					b, e := observed.Session.Bindings()
+					if e != nil {
+						t.Fatal(e)
+					}
+					_, e = pool.Raw().Exec(ctx, `UPDATE session_store.sessions SET state='revoked' WHERE tenant_id=$1 AND session_id=$2`, string(baselineTenant), b.SessionID)
+					if e != nil {
+						t.Fatal(e)
+					}
+				case "identifier":
+					_, e = pool.Raw().Exec(ctx, `UPDATE identity.identifiers SET version=version+1 WHERE tenant_id=$1 AND user_id=$2 AND identifier_id=$3`, string(baselineTenant), string(recipientID), string(identifiers.Identifiers[0].ID))
+					if e != nil {
+						t.Fatal(e)
+					}
+					defer func() {
+						if _, e := pool.Raw().Exec(ctx, `UPDATE identity.identifiers SET version=version-1 WHERE tenant_id=$1 AND user_id=$2 AND identifier_id=$3`, string(baselineTenant), string(recipientID), string(identifiers.Identifiers[0].ID)); e != nil {
+							t.Error(e)
+						}
+					}()
+				case "organization":
+					update, e := organizations.PrepareUpdate(ctx, organization.UpdateRequest{Authentication: owner, CommandID: commandID(t), OrganizationID: inv.org, OrganizationVersion: 1, Name: "Changed rejection policy", Slug: "reject-updated", CorrelationID: "reject-policy-change"}, "127.0.0.1")
+					if e != nil {
+						t.Fatal(e)
+					}
+					if out, e := organizations.Execute(ctx, update); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+						t.Fatal(e)
+					}
+				case "expiry":
+					if _, e := pool.Raw().Exec(ctx, `UPDATE organization.invitations SET created_at=clock_timestamp()-interval '2 hours',expires_at=date_trunc('second',clock_timestamp()-interval '1 second') WHERE tenant_id=$1 AND invitation_id=$2`, string(baselineTenant), string(inv.id)); e != nil {
+						t.Fatal(e)
+					}
+				}
+				if out, e := service.Execute(ctx, prepared); e == nil || out.Receipt.Outcome == identity.CommitOutcomeCommitted {
+					t.Fatal("withdrawn authority committed rejection")
+				}
+			})
+		}
+		for _, resource := range []string{"organization", "identity.user"} {
+			t.Run("rejection recovery late session "+resource, func(t *testing.T) {
+				inv := issue("reject-recovery-" + strings.ReplaceAll(resource, ".", "-"))
+				actual := signinRecipient()
+				r := request(inv)
+				r.Authentication = actual
+				prepared, e := service.PrepareReject(ctx, r, "127.0.0.1")
+				if e != nil {
+					t.Fatal(e)
+				}
+				if out, e := service.Execute(ctx, prepared); e != nil || out.Receipt.Outcome != identity.CommitOutcomeCommitted {
+					t.Fatal(e)
+				}
+				handle, e := prepared.Recovery()
+				if e != nil {
+					t.Fatal(e)
+				}
+				token, e := session.ParseToken(actual.Bearer.Token())
+				if e != nil {
+					t.Fatal(e)
+				}
+				credential, e := session.NewCredential(session.CredentialBearer, token)
+				if e != nil {
+					t.Fatal(e)
+				}
+				observed, e := sessions.Get(ctx, session.GetRequest{TenantID: actual.TenantID, Credential: credential})
+				if e != nil {
+					t.Fatal(e)
+				}
+				b, e := observed.Session.Bindings()
+				if e != nil {
+					t.Fatal(e)
+				}
+				hook := &invitationCancellationPolicy{base: policy}
+				c := configuration
+				c.Authorization = hook
+				q := *configuration.Coordinator.QueryPolicy
+				q.Authorization = hook
+				c.Coordinator.QueryPolicy, c.Coordinator.AdmissionPolicy = &q, &q
+				current, e := organizationpg.NewInvitationService(repository, c)
+				if e != nil {
+					t.Fatal(e)
+				}
+				fired := false
+				hook.before = func(ctx context.Context, d authorization.DecisionContext) error {
+					if fired || d.Request.Action != authorization.Action(organization.InvitationReject) || string(d.Request.Resource.Type) != resource {
+						return nil
+					}
+					fired = true
+					_, e := pool.Raw().Exec(ctx, `UPDATE session_store.sessions SET state='revoked' WHERE tenant_id=$1 AND session_id=$2`, string(baselineTenant), b.SessionID)
+					return e
+				}
+				if out, e := current.Recover(ctx, actual, handle); e == nil || out.Receipt.Outcome != identity.CommitOutcomeInvalid || !fired {
+					t.Fatal("late session withdrawal disclosed rejection receipt", e)
+				}
+			})
+		}
+		return
+	}
 	if selectedProfile == "mine" {
 		first, second, third := issue("mine-pending"), issue("mine-cancelled"), issue("mine-accepted")
 		var history migrationList

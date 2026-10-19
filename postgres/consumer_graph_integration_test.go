@@ -359,7 +359,7 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.organization.team.create", "identity.organization.team.member-add", "identity.organization.team.member-remove", "identity.organization.team.list", "identity.organization.team.list-mine", "identity.organization.team.member-list", "identity.organization.team.get", "identity.organization.team.update", "identity.organization.team.delete":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
-			case "identity.organization.invitation-send", "identity.organization.invitation.accept", "identity.organization.invitation.cancel", "identity.organization.invitation.get", "identity.organization.invitation.list", "identity.organization.invitation.list-mine":
+			case "identity.organization.invitation-send", "identity.organization.invitation.accept", "identity.organization.invitation.cancel", "identity.organization.invitation.reject", "identity.organization.invitation.get", "identity.organization.invitation.list", "identity.organization.invitation.list-mine":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.delivery.status-get":
 				allow = r.Resource.Type == "identity.user"

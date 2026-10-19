@@ -53,6 +53,11 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 			return members, nil
 		}
 	}
+	if x.Operation == organization.InvitationReject {
+		// Rejecting grants no membership or organization authority. Only the
+		// recipient/session fence and the invitation's own pending version matter.
+		return members, nil
+	}
 	target, err := readMember(ctx, w, b.TenantID, x.Organization.ID, b.UserID)
 	if err != nil {
 		return 0, err
@@ -118,6 +123,8 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		err = p.send(ctx, w)
 	} else if x.Operation == organization.InvitationCancel {
 		err = p.cancel(ctx, w)
+	} else if x.Operation == organization.InvitationReject {
+		err = p.reject(ctx, w)
 	} else {
 		err = p.accept(ctx, w, members)
 	}
@@ -133,6 +140,21 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		return identity.FeatureReceipt{}, err
 	}
 	return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, nil
+}
+
+func (p *invitationPhase) reject(ctx context.Context, w kernel.Work) error {
+	i := p.input.Invitation.Record
+	// As with cancellation, the native terminal row is the revocation fence.
+	// Acceptance locks this same row before membership and cannot consume the
+	// original capability after rejection, even if its signature remains valid.
+	n, err := w.Exec(ctx, `UPDATE organization.invitations SET state='rejected',version=2,rejected_at=clock_timestamp() WHERE tenant_id=$1 AND organization_id=$2 AND invitation_id=$3 AND state='pending' AND version=$4::numeric AND expires_at=$5 AND expires_at>clock_timestamp() AND recipient_user_id=$6 AND recipient_identifier_id=$7 AND recipient_identifier_version=$8::numeric AND created_by=$9 AND role='member'`, string(i.TenantID), string(i.OrganizationID), string(i.ID), strconv.FormatUint(i.Version, 10), i.ExpiresAt, string(i.RecipientUserID), string(i.RecipientIdentifierID), strconv.FormatUint(i.RecipientIdentifierVersion, 10), string(i.CreatedBy))
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
 }
 
 func (p *invitationPhase) cancel(ctx context.Context, w kernel.Work) error {

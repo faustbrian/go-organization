@@ -150,6 +150,10 @@ func TestOrganizationGenuineInvitationMineConsumer(t *testing.T) {
 	exerciseGenuinePasswordConsumer(t, "mine")
 }
 
+func TestOrganizationGenuineInvitationRejectionConsumer(t *testing.T) {
+	exerciseGenuinePasswordConsumer(t, "reject")
+}
+
 func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	ctx, pool, db := consumerDatabase(t)
 	keyNames := []string{"fingerprint", "request", "counter", "risk-evidence", "risk-seal", "preauth-cookie", "session-token", "session-csrf", "http-device", "delivery-envelope", "dummy-password", "capability-binding", "capability-signing", "signin-proof", "migration", "counter-replay", "http-rate", "otp-lockout", "otp-wrap", "otp-attempt", "otp-code", "otp-intent", "identifier", "delivery-digest", "delivery-namespace", "password-flow", "signup-binding", "signup-intent", "verification-scope", "capability-replay", "capability-envelope", "counter-envelope", "verification-http"}

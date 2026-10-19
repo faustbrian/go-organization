@@ -179,8 +179,34 @@ invitation metadata remains until later lifecycle handling. An owner may send a
 new independent invitation within the pending limit; this profile allows that
 alongside an existing pending invitation. It does not silently reissue custody,
 resend delivery, cancel the old invitation or reclaim its pending-limit slot.
-Resend/reject/explicit-expire and other full-goal
+Resend/explicit-expire and other full-goal
 profiles remain unimplemented.
+
+### Recipient invitation rejection
+
+Install `InvitationRejectionMigrationSource` at an unused permanent version after
+the cancellation migration before enabling `InvitationService.PrepareReject`.
+The additive schema preserves pending/accepted/cancelled rows; older binaries
+fail closed when reading the new rejected state. The current authenticated,
+intended verified recipient supplies `InvitationRejectRequest` with exact
+organization/invitation versions. No membership, administrative actor override
+or invitation proof is accepted as recipient authority.
+
+`Execute` uses the existing coordinator and current session/directory fences.
+One commit changes only the pending invitation to rejected version 2 and stores
+the canonical `identity.organization.reject_invitation` audit,
+`invitation.rejected.v1` event and command effect. Retention is `standard`, as
+declared by the canonical SECURITY_EVENTS invitation profile; prior send/accept
+retention is unchanged. Organization/membership authority is not advanced.
+The original capability may remain cryptographically valid, but its native
+pending-row fence cannot authorize acceptance after rejection. Acceptance and
+rejection serialize through the same existing tenant/organization transaction.
+
+Retain the original `PreparedInvitation` for keyed retries and persist its safe
+`Recovery()` handle before execution. An unknown COMMIT response must be resolved
+through `Recover` with a current genuine recipient session, without a proof,
+new command ID or reissue. Listing/get surfaces return only safe terminal
+metadata. Rejection does not introduce resend, explicit expiry or delivery recall.
 
 ### Pending invitation cancellation
 
@@ -226,7 +252,7 @@ email identifiers through the native directory owner, and evaluates current
 self-list policy on `identity.user`. It does not require organization membership
 or reuse administrator `Get`/`List` or delivery-status authority.
 
-All retained pending, accepted and cancelled invitations with the exact current
+All retained pending, accepted, cancelled and rejected invitations with the exact current
 recipient user and verified identifier ID/version are visible; pending records
 project expired at exclusive expiry. Removed, unverified or superseded identifier
 versions cannot reveal historical invitations. Organization membership and retained

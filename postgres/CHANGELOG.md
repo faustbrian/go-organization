@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add native recipient invitation rejection with atomic terminal version,
+  canonical audit/outbox effects and proof-free original-command recovery.
+  Install InvitationRejectionMigrationSource after the cancellation migration
+  before enabling rejection; older binaries fail closed on rejected metadata.
+
 - Add genuine current-recipient invitation listing without organization
   membership, with lifecycle-complete safe pages and late session/directory
   revalidation. Install the additive concurrent recipient-index migration before
