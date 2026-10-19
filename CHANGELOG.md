@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add owner/administrator resend preparation for an exact pending invitation.
+  Preserve its recipient, member role and original deadline while selecting the
+  next issued version. `Invitation.IssuedVersion` distinguishes later pending
+  generations from their terminal transitions; zero retains legacy version1.
+
 - Add owner/administrator static member-role updates with exact organization
   and membership versions, final-owner protection and current role authority.
   Only owners may grant or demote owners; unchanged roles conflict.

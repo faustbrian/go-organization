@@ -19,6 +19,7 @@ const (
 	InvitationCancel Operation = "identity.organization.invitation.cancel"
 	InvitationReject Operation = "identity.organization.invitation.reject"
 	InvitationExpire Operation = "identity.organization.invitation.expire"
+	InvitationResend Operation = "identity.organization.invitation.resend"
 	InvitationGet    Operation = "identity.organization.invitation.get"
 	InvitationList   Operation = "identity.organization.invitation.list"
 )
@@ -36,6 +37,8 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 		schema = "organization-invitation-reject"
 	case InvitationExpire:
 		schema = "organization-invitation-expire"
+	case InvitationResend:
+		schema = "organization-invitation-resend"
 	default:
 		return identity.FeatureOperation{}
 	}
@@ -43,9 +46,10 @@ func invitationDescriptor(o Operation) identity.FeatureOperation {
 }
 
 // InvitationStatus describes the selected durable lifecycle. Zero is invalid.
-// Expired version1 is a non-authorizing natural-deadline projection; expired
-// version2 is an explicit durable terminal transition. No terminal state can
-// become pending again.
+// Natural expiry retains its last issued version; explicit expiry is the next
+// durable record version. IssuedVersion distinguishes those projections after
+// resend, while legacy first-issuance rows retain version1/version2 semantics.
+// No terminal state can become pending again.
 type InvitationStatus uint8
 
 const (
@@ -69,7 +73,11 @@ type Invitation struct {
 	Role                       Role
 	Status                     InvitationStatus
 	Version                    uint64
-	ExpiresAt                  time.Time
+	// IssuedVersion is the last pending version bound to an issued proof.
+	// Zero preserves legacy source projections and means first issuance (one).
+	// Pending/natural-expired Version equals it; terminal Version is one later.
+	IssuedVersion uint64
+	ExpiresAt     time.Time
 }
 
 // InvitationDelivery combines safe invitation metadata with the existing
@@ -381,8 +389,16 @@ func (s *InvitationService) PrepareAccept(ctx context.Context, r InvitationAccep
 }
 
 func validInvitation(i Invitation, tenant identity.TenantID, org ID) bool {
-	versionValid := (i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == 1 || (i.Status == InvitationAccepted || i.Status == InvitationCancelled || i.Status == InvitationRejected || i.Status == InvitationExpired) && i.Version == 2
+	issued := invitationIssuedVersion(i)
+	versionValid := issued < ^uint64(0) && ((i.Status == InvitationPending || i.Status == InvitationExpired) && i.Version == issued || (i.Status == InvitationAccepted || i.Status == InvitationCancelled || i.Status == InvitationRejected || i.Status == InvitationExpired) && i.Version == issued+1)
 	return safeID(string(i.ID)) && i.TenantID == tenant && i.OrganizationID == org && safeID(string(i.RecipientUserID)) && safeID(string(i.RecipientIdentifierID)) && i.RecipientIdentifierVersion > 0 && safeID(string(i.CreatedBy)) && i.Role == RoleMember && versionValid && !i.ExpiresAt.IsZero() && i.ExpiresAt.Equal(i.ExpiresAt.UTC().Truncate(time.Second))
+}
+
+func invitationIssuedVersion(i Invitation) uint64 {
+	if i.IssuedVersion == 0 {
+		return 1
+	}
+	return i.IssuedVersion
 }
 
 // InvitationReadRequest selects owner-only safe metadata. Get requires ID and

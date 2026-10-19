@@ -21,8 +21,8 @@ type InvitationExpireRequest struct {
 
 // PrepareExpire admits explicit expiry before or after the natural deadline.
 // The operation catalog's pending-row transition differs from natural expiry's
-// version1 projection: native execution must atomically persist terminal
-// version2, reason, canonical audit and event, invalidating every old proof.
+// pending-version projection: native execution must atomically persist the next
+// terminal version, reason, canonical audit and event, invalidating every proof.
 func (s *InvitationService) PrepareExpire(ctx context.Context, r InvitationExpireRequest) (out Command, err error) {
 	defer func() {
 		if recover() != nil {
@@ -63,7 +63,7 @@ func (s *InvitationService) PrepareExpire(ctx context.Context, r InvitationExpir
 	if bounded.Err() != nil {
 		return out, bounded.Err()
 	}
-	if observed.ValidateAt(s.base.config.Clock.Now()) != nil || i.Version != 1 || i.Status != InvitationPending && i.Status != InvitationExpired {
+	if observed.ValidateAt(s.base.config.Clock.Now()) != nil || i.Version != invitationIssuedVersion(i) || i.Status != InvitationPending && i.Status != InvitationExpired {
 		return out, ErrForbidden
 	}
 	if i.Version != r.InvitationVersion || v.Organization.Version != r.OrganizationVersion {

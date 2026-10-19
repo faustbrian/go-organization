@@ -12,19 +12,33 @@ while protecting the last owner.
 
 ## API and selection
 
+`InvitationService.PrepareResend` selects a current owner/administrator and the
+exact pending invitation and organization versions. It preserves the original
+recipient, verified identifier, member role and exclusive deadline; it does not
+accept a replacement address or a renewed lifetime. Preparation alone issues
+no proof. Durable supersession requires the native capability/delivery owners
+and one atomic commit, so the predecessor and successor are never independently
+consumable. Retain the original command for retries and recovery.
+
+`Invitation.IssuedVersion` identifies the pending proof generation. A pending
+or naturally expired projection has `Version == IssuedVersion`; a durable
+terminal transition has `Version == IssuedVersion + 1`. For source compatibility,
+zero `IssuedVersion` means the original issued version1. Resend requires room
+for both the successor version and its later terminal transition.
+
 `InvitationService.PrepareExpire` selects the current owner/administrator and an
 exact pending invitation/version with a reason from configured
 `InvitationConfig.ExpirationReasons`. An empty registry leaves expiry disabled.
 Explicit expiry can precede the natural deadline or terminalize an elapsed
-pending row: `InvitationExpired` at version1 is only a natural projection;
-version2 is a durable terminal effect that prevents every prior proof from
+pending row: `InvitationExpired` at its issued version is only a natural projection;
+the next version is a durable terminal effect that prevents every prior proof from
 authorizing acceptance. See the adapter's
 [schema and recovery requirements](postgres/README.md#explicit-invitation-expiry).
 
 `InvitationService.PrepareReject` admits only the authenticated intended verified
 recipient of an exact pending invitation, using original organization/invitation
 versions without membership or an invitation proof. The native adapter atomically
-stores rejected version 2 with canonical audit/event effects; the original
+stores the next terminal version with canonical audit/event effects; the original
 capability can no longer authorize acceptance. See the adapter's
 [migration and recovery requirements](postgres/README.md#recipient-invitation-rejection).
 
@@ -91,7 +105,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Invitation resend/reject, dynamic team permissions, custom
+Dynamic team permissions, custom
 roles, domain claims,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
@@ -100,7 +114,8 @@ operations. Their presence in planning material does not make them available.
 ## Selected invitation boundary
 
 The storage-neutral `InvitationService` adds owner-send, intended-recipient
-acceptance and owner/administrator cancellation preparation to the same immutable
+acceptance/rejection and owner/administrator resend/cancellation/expiry
+preparation to the same immutable
 `Command`/`UnitOfWork` contract.
 This root boundary alone is not durable invitation issuance or consumption;
 the native `postgres.NewInvitationService` supplies the sole coordinator,
@@ -121,8 +136,7 @@ delivery owner's state/effect ID. They expose no transport address, proof or
 encrypted custody. Provider `Accepted` is not confirmed `Delivered`. Pending
 records project as expired at the exclusive deadline without a new mutation.
 Listing uses exclusive invitation-ID keysets with limits1–100.
-Prospective-user signup, grants above member and resend variants are
-not selected by this profile.
+Prospective-user signup and grants above member are not selected by this profile.
 
 Configuration explicitly selects a lifetime within15 minutes–30 days and a
 pending bound within1–10000; the reference selection is48 hours/100. A48-hour
@@ -140,7 +154,8 @@ pending row. Preserve the safe recovery handle before executing and reconcile
 ambiguous outcomes before selecting any new command.
 
 The owning lifecycle catalog adds `invitation.created.v1` (invitation0→1) and
-`invitation.accepted.v1` (invitation1→2). Acceptance also requires the distinct
+`invitation.accepted.v1` (issued invitation version→next terminal version).
+Acceptance also requires the distinct
 existing `membership.created.v1` transition for its actual membership version;
 an invitation event must not masquerade as that membership event. Exact audit
 actions are `identity.organization.create_invitation` and
