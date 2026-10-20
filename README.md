@@ -1,7 +1,8 @@
 # go-organization
 
 > **Status: experimental.** Explicit-organization membership and the selected
-> existing-recipient invitation and opt-in team-membership profiles are implemented. This is not a
+> existing-recipient invitation, opt-in team-membership and domain-reservation
+> profiles are implemented. This is not a
 > stable release or complete organization unit.
 
 `go-organization` supplies storage-neutral organization policy and a
@@ -11,6 +12,12 @@ updates static membership roles, lists members and removes members
 while protecting the last owner.
 
 ## API and selection
+
+`DomainConfig` selects authenticated [domain reservation custody](docs/domain-claims.md):
+current owners/administrators prepare a reservation, read their organization's
+current claim, and withdraw its exact version. Zero leaves this profile disabled.
+Reservations are globally exclusive in the native PostgreSQL adapter but are
+never proof of domain ownership and never enable SSO routing.
 
 `InvitationService.PrepareResend` selects a current owner/administrator and the
 exact pending invitation and organization versions. It preserves the original
@@ -106,7 +113,7 @@ The root boundary does not own:
 - database clients, migrations, transactions, caches, or background workers.
 
 Dynamic team permissions, custom
-roles, domain claims,
+roles, domain challenges and ownership proofs,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.

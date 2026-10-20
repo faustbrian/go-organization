@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add opt-in owner/administrator domain reservation, authenticated own-claim
+  reads and exact-version withdrawal. Explicit ASCII canonicalization and
+  bounded retained claims preserve immutable withdrawn identities; reservations
+  are not ownership proof and do not authorize SSO routing.
+
 - Add owner/administrator resend preparation for an exact pending invitation.
   Preserve its recipient, member role and original deadline while selecting the
   next issued version. `Invitation.IssuedVersion` distinguishes later pending

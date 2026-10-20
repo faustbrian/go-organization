@@ -72,6 +72,14 @@ func (*policyOwner) Recover(context.Context, identity.CommandID) (organization.S
 // This is a core-policy unit fixture, not proof of native identity/session
 // persistence or sign-in. The PostgreSQL suite must use those actual owners.
 func policyFixture(t *testing.T, selectedTeams ...organization.TeamConfig) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
+	var teams organization.TeamConfig
+	if len(selectedTeams) > 0 {
+		teams = selectedTeams[0]
+	}
+	return policyFixtureConfig(t, teams, organization.DomainConfig{})
+}
+
+func policyFixtureConfig(t *testing.T, teams organization.TeamConfig, domains organization.DomainConfig) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
 	t.Helper()
 	c := &policyClock{now: time.Date(2026, 10, 18, 12, 0, 1, 0, time.UTC)}
 	remember, err := session.ResolveRememberPolicy(session.BrowserSession, session.LifetimeConfig{Default: session.BrowserSession, AbsoluteTTL: time.Hour, IdleTTL: time.Hour, RefreshAfter: time.Minute, FreshFor: time.Hour})
@@ -111,11 +119,7 @@ func policyFixture(t *testing.T, selectedTeams ...organization.TeamConfig) (*org
 	}
 	owner := &policyOwner{view: organization.View{Organization: organization.Organization{ID: "org", TenantID: "tenant-a", Slug: "example", Name: "Example", Version: 7, Active: true}, Actor: organization.Member{OrganizationID: "org", TenantID: "tenant-a", UserID: "actor", Role: organization.RoleOwner, Version: 1, AuthorizationVersion: 1, Active: true}, Target: organization.Member{OrganizationID: "org", TenantID: "tenant-a", UserID: "target", Role: organization.RoleOwner, Version: 2, AuthorizationVersion: 1, Active: true}, TargetUser: identity.User{ID: "target", TenantID: "tenant-a", Status: identity.StatusActive, Version: 3}, OwnerCount: 2}}
 	policy := &recordingPolicy{outcome: authorization.Allow, revision: 1}
-	var teams organization.TeamConfig
-	if len(selectedTeams) > 0 {
-		teams = selectedTeams[0]
-	}
-	service, err := organization.NewService(sessions, owner, policy, organization.Config{Clock: c, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
+	service, err := organization.NewService(sessions, owner, policy, organization.Config{Clock: c, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

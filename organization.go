@@ -56,6 +56,9 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
+	if domainMutation(o) {
+		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-domain-reservation", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
+	}
 	if teamMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-team", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
@@ -129,6 +132,7 @@ type Query struct {
 	Limit          uint32
 	TeamID         ID
 	TeamCursor     string
+	DomainClaimID  ID
 }
 
 // View is an independently owned primary snapshot. OwnerCount includes active
@@ -145,6 +149,7 @@ type View struct {
 	Teams          []Team
 	TeamMembers    []TeamMember
 	NextTeamCursor string
+	DomainClaim    DomainClaim
 }
 
 // Repository reads only authoritative owned organization state and delegates
@@ -188,6 +193,7 @@ type Config struct {
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	ValidateCanonicalID                              func(context.Context, ID) error
 	Teams                                            TeamConfig
+	Domains                                          DomainConfig
 	// OwnerTransferAudience explicitly selects the signed primary-proof audience.
 	// Empty disables ownership transfer; it is independent of session audience.
 	OwnerTransferAudience string
@@ -204,7 +210,7 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
@@ -295,6 +301,8 @@ type CommandInput struct {
 	Team                                             Team
 	TeamMember                                       TeamMember
 	Teams                                            TeamConfig
+	DomainClaim                                      DomainClaim
+	Domains                                          DomainConfig
 	OwnerTransferProof                               authentication.ReauthenticationProof
 }
 
