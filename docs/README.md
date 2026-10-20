@@ -8,7 +8,7 @@ proof of full-unit completion.
 
 ## Complete documentation map
 
-- [Selected direct custom roles](dynamic-roles.md) — `docs/dynamic-roles.md`
+- [Selected direct and opt-in team custom roles](dynamic-roles.md) — `docs/dynamic-roles.md`
 
 - [Goal: planned go-organization boundary](goal.md) — `docs/goal.md`
 - [Planned security model](security.md) — `docs/security.md`

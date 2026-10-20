@@ -127,39 +127,41 @@ func (Authentication) MarshalText() ([]byte, error) { return nil, ErrSensitiveSe
 // Adapters must recheck membership on each call; there is no positive cache.
 // TargetID is used only for native identity-owner reads when preparing mutation.
 type Query struct {
-	Operation      Operation
-	TenantID       identity.TenantID
-	ActorID        identity.UserID
-	OrganizationID ID
-	TargetID       identity.UserID
-	Cursor         identity.UserID
-	Limit          uint32
-	TeamID         ID
-	TeamCursor     string
-	DomainClaimID  ID
-	DynamicRoleID  ID
-	RoleCursor     string
+	Operation        Operation
+	TenantID         identity.TenantID
+	ActorID          identity.UserID
+	OrganizationID   ID
+	TargetID         identity.UserID
+	Cursor           identity.UserID
+	Limit            uint32
+	TeamID           ID
+	TeamCursor       string
+	DomainClaimID    ID
+	DynamicRoleID    ID
+	RoleCursor       string
+	IncludeTeamRoles bool
 }
 
 // View is an independently owned primary snapshot. OwnerCount includes active
 // owners only; it is advisory until rechecked under the mutation's aggregate lock.
 type View struct {
-	Organization   Organization
-	Actor, Target  Member
-	TargetUser     identity.User
-	OwnerCount     uint64
-	Members        []Member
-	NextCursor     identity.UserID
-	Team           Team
-	TeamMember     TeamMember
-	Teams          []Team
-	TeamMembers    []TeamMember
-	NextTeamCursor string
-	DomainClaim    DomainClaim
-	DynamicRole    DynamicRole
-	DynamicRoles   []DynamicRole
-	RoleBinding    RoleBinding
-	NextRoleCursor string
+	Organization    Organization
+	Actor, Target   Member
+	TargetUser      identity.User
+	OwnerCount      uint64
+	Members         []Member
+	NextCursor      identity.UserID
+	Team            Team
+	TeamMember      TeamMember
+	Teams           []Team
+	TeamMembers     []TeamMember
+	NextTeamCursor  string
+	DomainClaim     DomainClaim
+	DynamicRole     DynamicRole
+	DynamicRoles    []DynamicRole
+	RoleBinding     RoleBinding
+	TeamRoleBinding TeamRoleBinding
+	NextRoleCursor  string
 }
 
 // Repository reads only authoritative owned organization state and delegates
@@ -221,7 +223,7 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
@@ -317,6 +319,7 @@ type CommandInput struct {
 	Domains                                          DomainConfig
 	DynamicRole                                      DynamicRole
 	RoleBinding                                      RoleBinding
+	TeamRoleBinding                                  TeamRoleBinding
 	DynamicRoles                                     DynamicRoleConfig
 	OwnerTransferProof                               authentication.ReauthenticationProof
 }

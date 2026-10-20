@@ -16,8 +16,11 @@ registered application permissions within a deployment ceiling. Current static
 owner/admin management authority remains independent; an assigned role cannot
 become an owner or grant organization-management access. Explicit deny wins and
 unknown statements fail closed. Every check requires the current organization
-policy epoch; removal/readmission cannot revive old direct bindings. Team-derived
-permissions remain unsupported.
+policy epoch; removal/readmission cannot revive old direct bindings. Explicit
+`TeamBindingsVersion: 1` additionally evaluates compatible current team bindings,
+with deny precedence across both paths. Removed or terminally deleted teams and
+stale organization admissions grant nothing; team roles confer no management
+authority. Activation requires the forward migration and terminal team lifecycle.
 
 ## Selected profile
 
@@ -94,8 +97,8 @@ not infer those capabilities from ambient process state.
 - **Severity:** critical if treated as deployable.
 - **Disposition:** release blocker; not accepted for production.
 - **Owner:** go-organization maintainers.
-- **Rationale:** full invitation lifecycle, dynamic team permissions, ownership
-  transfer, domain proofs, archive/delete commands, active selection, cache
+- **Rationale:** full invitation/team-role qualification, domain proofs,
+  archive/delete commands, active selection, cache
   closure, SSO/SCIM, MFA/passkeys and HTTP/browser transport are unselected.
 - **Mitigation:** keep the modules experimental; do not infer those controls
   from reserved database states or the historical goal.

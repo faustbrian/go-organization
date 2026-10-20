@@ -1,9 +1,9 @@
-# Direct organization custom roles
+# Organization custom roles
 
 This opt-in native profile uses explicit organization selection and genuine
 password/bearer sessions. It is a finite M23 profile, not full organization or
-identity-platform qualification. Team membership/lifecycle remains separate;
-team-derived permissions, active-role selection, conditions, wildcards, custom
+identity-platform qualification. Team-derived permissions require the additional
+explicit selection below. Active-role selection, conditions, wildcards, custom
 management permissions and HTTP/reference composition are not selected.
 
 ## Selection and ceiling
@@ -62,10 +62,40 @@ keys and unrelated member/session authority are not revoked by this profile.
 `CheckPermission` accepts only the current authenticated member, exact requested
 action/resource and required organization epoch. The external policy may veto
 the check. The existing authorization RBAC evaluator and deny-overrides engine
-evaluate current direct bindings: any matching explicit deny wins over allows;
+evaluate current effective bindings: any matching explicit deny wins over allows;
 no match denies. It returns the current organization epoch as `Decision.Revision`,
 not a cached/session-derived lease. Cross-tenant/organization and removed-member
 inputs deny. Epoch checks after role loading fence concurrent policy changes.
+
+## Optional team-derived permissions
+
+Set identical `DynamicRoles.TeamBindingsVersion: 1` on core and contributor,
+with `Teams.LifecycleVersion: 1`. Install `TeamRoleBindingMigrationSource` after
+both dynamic-role and terminal team-lifecycle migrations before activation.
+Zero preserves direct-only configuration fingerprints and command framing.
+Do not run old direct-only evaluators alongside the opted-in deployment: they
+cannot evaluate team denies. Configuration changes require coordinated activation.
+
+`GetDynamicRole` accepts an exclusive `TargetTeamID` instead of `TargetUserID`
+to return the current team and exact absent/live/revoked binding. Current static
+managers use those discovered organization, role, team and binding versions with
+`PrepareAssignTeamDynamicRole` or `PrepareRevokeTeamDynamicRole`, followed by
+ordinary `Execute`. These reuse the existing `role.assign`/`role.revoke` actions,
+protected counters and original-command recovery; no new management authority
+is inferred from the assigned role.
+
+Effective evaluation includes each current role once across direct assignments
+and all compatible current team memberships. An explicit deny on either path
+wins over every allow. Team membership must match the user's current organization
+admission epoch. Team removal, organization removal/readmission and terminal team
+deletion deny old authority immediately, including on warm services. Legitimate
+team re-admission requires an explicit membership change at current versions.
+Deleting/updating a role affects both assignment paths without per-user fan-out.
+Team bindings are bounded by retained team and role limits; binding changes
+atomically advance both the shared team subject epoch and organization policy
+epoch. They do not rewrite every member or confer ownership/static-management
+rights. Terminal replay and original recovery retain current manager/session
+checks. Active-team selection and HTTP/reference composition remain unselected.
 
 ## Persistence and recovery
 

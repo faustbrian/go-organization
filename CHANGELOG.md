@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add opt-in team custom-role assignments and current direct-plus-team permission
+  evaluation with shared deny precedence. Exact team binding discovery supports
+  fresh clients; deleted teams and stale organization admissions grant nothing.
+  Existing direct-only configuration remains unchanged.
+
 - Expose exact member role-binding snapshots through authenticated role reads,
   including absent and revoked versions for fresh-manager revoke/reassignment.
   Stored assignment state remains separate from current membership authority.
@@ -9,8 +14,7 @@
 - Add opt-in bounded custom roles and direct-member assignments with exact
   registered action/resource permissions, explicit-deny precedence, current
   organization policy fences and terminal deletion. Custom roles cannot grant
-  owner/administrator management authority; team-derived permissions remain
-  unsupported.
+  owner/administrator management authority.
 
 - Add opt-in owner/administrator domain reservation, authenticated own-claim
   reads and exact-version withdrawal. Explicit ASCII canonicalization and

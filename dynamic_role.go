@@ -34,23 +34,26 @@ type Permission struct {
 	ResourceType authorization.ResourceType
 }
 
-// DynamicRoleConfig selects the direct-member custom-role profile. Zero disables
+// DynamicRoleConfig selects the custom-role profile. Zero disables
 // it. MaximumRoles bounds retained role identities per organization (1..100),
 // including deleted tombstones, so delete/create churn cannot grow storage.
 // Catalog is copied at construction, has 1..128 distinct entries, and is part
 // of durable command identity. Changing it requires a deployment policy epoch.
-// Team-derived permissions and custom management permissions are unsupported.
+// Custom management permissions remain unsupported.
 type DynamicRoleConfig struct {
 	Version, MaximumRoles uint64
 	Catalog               []Permission
+	// TeamBindingsVersion1 opts into direct+team effective role evaluation and
+	// team-target role.assign/revoke. Zero preserves direct-only command bytes.
+	TeamBindingsVersion uint64 `json:",omitempty"`
 }
 
 // Validate accepts the disabled zero policy or a bounded complete catalog.
 func (c DynamicRoleConfig) Validate() error {
-	if c.Version == 0 && c.MaximumRoles == 0 && len(c.Catalog) == 0 {
+	if c.Version == 0 && c.MaximumRoles == 0 && len(c.Catalog) == 0 && c.TeamBindingsVersion == 0 {
 		return nil
 	}
-	if c.Version == 0 || c.MaximumRoles < 1 || c.MaximumRoles > 100 || len(c.Catalog) < 1 || len(c.Catalog) > 128 {
+	if c.Version == 0 || c.MaximumRoles < 1 || c.MaximumRoles > 100 || len(c.Catalog) < 1 || len(c.Catalog) > 128 || c.TeamBindingsVersion > 1 {
 		return ErrInvalidInput
 	}
 	seen := map[string]bool{}
@@ -72,7 +75,8 @@ func (c DynamicRoleConfig) Fingerprint() string {
 func (c DynamicRoleConfig) clone() DynamicRoleConfig { c.Catalog = slices.Clone(c.Catalog); return c }
 
 // RoleStatement references only registered permissions, an exact resource ID,
-// and Allow or Deny. Conditions, wildcards and team inheritance are unselected.
+// and Allow or Deny. Conditions and wildcards remain unselected; optional team
+// inheritance evaluates these same bounded statements without expanding them.
 type RoleStatement struct {
 	PermissionID string
 	ResourceID   authorization.ResourceID
@@ -158,7 +162,7 @@ type RoleBindingRequest struct {
 
 // DynamicRoleReadRequest selects one exact role or an exclusive ID-keyset page.
 // Reads require current static owner/admin authority. List requires Limit 1..100
-// and empty RoleID/TargetUserID; Get requires RoleID, zero Limit and empty Cursor.
+// and empty RoleID/target selectors; Get requires RoleID, zero Limit and empty Cursor.
 // Get's optional TargetUserID returns that exact organization membership and
 // its absent/live/tombstone RoleBinding, including versions for a fresh manager.
 // Removed membership state remains explicit; a stored binding is never authority.
@@ -166,13 +170,17 @@ type DynamicRoleReadRequest struct {
 	Authentication         Authentication
 	OrganizationID, RoleID ID
 	TargetUserID           identity.UserID
-	Cursor                 string
-	Limit                  uint32
-	CorrelationID          string
+	// TargetTeamID selects one current team binding; it is mutually exclusive
+	// with TargetUserID and requires TeamBindingsVersion1. List rejects both.
+	TargetTeamID  ID
+	Cursor        string
+	Limit         uint32
+	CorrelationID string
 }
 
-// PermissionCheckRequest checks the authenticated member's direct custom roles,
-// never another subject. OrganizationVersion is a required current policy fence.
+// PermissionCheckRequest checks the authenticated member's effective custom roles,
+// never another subject. Team bindings participate only under explicit selection.
+// OrganizationVersion is a required current policy fence.
 // Static roles grant management only, not implicit application-resource access.
 type PermissionCheckRequest struct {
 	Authentication      Authentication
@@ -313,19 +321,19 @@ func (s *Service) readDynamicRoles(ctx context.Context, r DynamicRoleReadRequest
 			out, err = View{}, ErrUnavailable
 		}
 	}()
-	if s == nil || ctx == nil || s.config.DynamicRoles.Version == 0 || !safeID(string(r.OrganizationID)) || !safeID(r.CorrelationID) || op == GetDynamicRole && (!safeID(string(r.RoleID)) || r.Limit != 0 || r.Cursor != "" || r.TargetUserID != "" && !safeID(string(r.TargetUserID))) || op == ListDynamicRoles && (r.RoleID != "" || r.TargetUserID != "" || r.Limit < 1 || r.Limit > 100 || r.Cursor != "" && !safeID(r.Cursor)) {
+	if s == nil || ctx == nil || s.config.DynamicRoles.Version == 0 || !safeID(string(r.OrganizationID)) || !safeID(r.CorrelationID) || op == GetDynamicRole && (!safeID(string(r.RoleID)) || r.Limit != 0 || r.Cursor != "" || r.TargetUserID != "" && !safeID(string(r.TargetUserID)) || r.TargetTeamID != "" && (s.config.DynamicRoles.TeamBindingsVersion != 1 || r.TargetUserID != "" || !safeID(string(r.TargetTeamID)))) || op == ListDynamicRoles && (r.RoleID != "" || r.TargetUserID != "" || r.TargetTeamID != "" || r.Limit < 1 || r.Limit > 100 || r.Cursor != "" && !safeID(r.Cursor)) {
 		return out, ErrInvalidInput
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
 	defer cancel()
-	if s.config.ValidateCanonicalID(bounded, r.OrganizationID) != nil || r.RoleID != "" && s.config.ValidateCanonicalID(bounded, r.RoleID) != nil {
+	if s.config.ValidateCanonicalID(bounded, r.OrganizationID) != nil || r.RoleID != "" && s.config.ValidateCanonicalID(bounded, r.RoleID) != nil || r.TargetTeamID != "" && s.config.ValidateCanonicalID(bounded, r.TargetTeamID) != nil {
 		return out, ErrInvalidInput
 	}
 	_, actor, e := s.authenticate(bounded, r.Authentication)
 	if e != nil {
 		return out, e
 	}
-	q := Query{Operation: op, TenantID: r.Authentication.TenantID, OrganizationID: r.OrganizationID, ActorID: actor, DynamicRoleID: r.RoleID, TargetID: r.TargetUserID, RoleCursor: r.Cursor, Limit: r.Limit}
+	q := Query{Operation: op, TenantID: r.Authentication.TenantID, OrganizationID: r.OrganizationID, ActorID: actor, DynamicRoleID: r.RoleID, TargetID: r.TargetUserID, TeamID: r.TargetTeamID, RoleCursor: r.Cursor, Limit: r.Limit}
 	v, e := s.repository.Read(bounded, q)
 	if e != nil {
 		return out, publicError(bounded, e)
@@ -345,6 +353,9 @@ func (s *Service) readDynamicRoles(ctx context.Context, r DynamicRoleReadRequest
 			return out, ErrForbidden
 		}
 		if r.TargetUserID != "" && !validRoleBindingView(fresh, q) {
+			return out, ErrForbidden
+		}
+		if r.TargetTeamID != "" && !validTeamRoleView(fresh, q) {
 			return out, ErrForbidden
 		}
 	} else {
@@ -430,7 +441,7 @@ func (s *Service) CheckPermission(ctx context.Context, r PermissionCheckRequest)
 	if e != nil {
 		return out, e
 	}
-	q := Query{Operation: CheckPermission, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID, Limit: uint32(s.config.DynamicRoles.MaximumRoles)}
+	q := Query{Operation: CheckPermission, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID, Limit: uint32(s.config.DynamicRoles.MaximumRoles), IncludeTeamRoles: s.config.DynamicRoles.TeamBindingsVersion == 1}
 	v, e := s.repository.Read(bounded, q)
 	if e != nil {
 		return out, publicError(bounded, e)

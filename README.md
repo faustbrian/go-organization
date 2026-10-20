@@ -13,18 +13,22 @@ while protecting the last owner.
 
 ## API and selection
 
-`DynamicRoleConfig` selects [bounded direct custom roles](docs/dynamic-roles.md).
+`DynamicRoleConfig` selects [bounded custom roles](docs/dynamic-roles.md).
 Current owners/administrators create/read/list/update/delete roles and assign or
 revoke them for current members. `CheckPermission` evaluates exact registered
 action/resource statements through the existing authorization RBAC engine, with
 explicit deny precedence and a required current organization policy version.
 Custom roles confer no organization-management or ownership authority. Zero
-configuration disables this profile; team-derived permissions remain unsupported.
+configuration disables this profile. `TeamBindingsVersion: 1` additionally selects
+team bindings with terminal team lifecycle and its forward migration; zero keeps
+the existing direct-only profile.
 
 `GetDynamicRole` optionally accepts `TargetUserID` to return that exact member's
 current membership and absent/live/tombstone role binding. Fresh managers can
 discover the versions needed to revoke or reassign without application history;
-`ListDynamicRoles` does not accept a target selector.
+`ListDynamicRoles` does not accept a target selector. The team profile instead
+accepts exclusive `TargetTeamID` for exact team/binding versions, then
+`PrepareAssignTeamDynamicRole` or `PrepareRevokeTeamDynamicRole`.
 
 `DomainConfig` selects authenticated [domain reservation custody](docs/domain-claims.md):
 current owners/administrators prepare a reservation, read their organization's
@@ -125,7 +129,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Dynamic team permissions, domain challenges and ownership proofs,
+Domain challenges and ownership proofs,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.
@@ -289,8 +293,9 @@ requires an explicit team add against the new organization-member version and
 retained team tombstone version. The additional [team lifecycle profile](docs/team-lifecycle.md)
 selects exact get, versioned name update and terminal delete only after its
 forward migration and explicit `LifecycleVersion: 1`. Direct custom roles are
-selected separately by `DynamicRoleConfig`; team-derived permissions, active
-team, HTTP/reference registration and full M23 remain unselected.
+selected separately by `DynamicRoleConfig`; its optional `TeamBindingsVersion: 1`
+adds effective team permissions. Active team selection, HTTP/reference
+registration and full M23 remain unselected.
 
 ## License
 
