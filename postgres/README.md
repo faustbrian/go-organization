@@ -9,8 +9,12 @@ owns transactions, command IDs, reservations, replay and scoped recovery.
 Install `DynamicRoleMigrationSource` after the base organization migration, then
 select identical nonzero `DynamicRoles` in core and contributor configuration.
 See [the public role/permission contract](../docs/dynamic-roles.md) for the
-finite catalog, exact-resource statements, version fences and unsupported team
-inheritance. The risk supplier must classify `identity.organization.role.assign`
+finite catalog, exact-resource statements and version fences. Optional team
+inheritance requires `TeamRoleBindingMigrationSource` after dynamic roles and
+terminal team lifecycle, then identical `DynamicRoles.TeamBindingsVersion: 1`
+and `Teams.LifecycleVersion: 1` on core/contributor. Do not mix direct-only
+evaluators with the opted-in deployment: they cannot enforce team denies.
+The risk supplier must classify `identity.organization.role.assign`
 and `.revoke` as privileged; missing classifications fail closed, not bypass
 protected counters. Existing role create/update/delete classifications also apply.
 
@@ -454,8 +458,8 @@ lost acknowledgement recovery and a populated forward migration. The optional
 [team lifecycle profile](../docs/team-lifecycle.md) adds exact get, bounded name
 update and terminal deletion after `TeamLifecycleMigrationSource` and explicit
 `Teams.LifecycleVersion: 1`. Direct custom roles use their separate explicit
-profile; active selection, team-derived permissions and HTTP composition remain
-unselected.
+profile; its explicit team-binding option adds inherited permissions. Active
+selection and HTTP composition remain unselected.
 
 Recovery re-reads the submitted native session and the original current
 organization/member role, policy and scoped-authority epochs after external

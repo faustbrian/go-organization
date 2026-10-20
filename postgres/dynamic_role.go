@@ -108,6 +108,9 @@ func decodeRoleStatements(wire string) ([]organization.RoleStatement, error) {
 }
 
 func (r *Repository) readDynamicRoles(ctx context.Context, q organization.Query, v organization.View) (organization.View, error) {
+	if q.IncludeTeamRoles && q.Operation != organization.CheckPermission || q.TeamID != "" && (q.TargetID != "" || q.Operation != organization.GetDynamicRole && !isRoleBindingMutation(q.Operation)) {
+		return organization.View{}, organization.ErrInvalidInput
+	}
 	if q.TargetID != "" && q.Operation != organization.GetDynamicRole && !isRoleBindingMutation(q.Operation) {
 		return organization.View{}, organization.ErrInvalidInput
 	}
@@ -133,7 +136,11 @@ func (r *Repository) readDynamicRoles(ctx context.Context, q organization.Query,
 		if q.Limit < 1 || q.Limit > 100 || q.RoleCursor != "" && !scopeID(q.RoleCursor) {
 			return organization.View{}, organization.ErrInvalidInput
 		}
-		rows, e := r.pool.Raw().Query(ctx, `SELECT r.role_id,r.name,r.version::text,r.statements FROM organization.custom_roles r WHERE r.tenant_id=$1 AND r.organization_id=$2 AND r.state='active' AND r.role_id>$3 COLLATE "C" AND ($4 OR EXISTS(SELECT 1 FROM organization.role_bindings b JOIN organization.memberships m USING(tenant_id,organization_id,user_id) WHERE b.tenant_id=r.tenant_id AND b.organization_id=r.organization_id AND b.role_id=r.role_id AND b.user_id=$5 AND b.state='active' AND m.state='active' AND b.organization_member_version=m.version)) ORDER BY r.role_id COLLATE "C" LIMIT $6`, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit+1))
+		query := `SELECT r.role_id,r.name,r.version::text,r.statements FROM organization.custom_roles r WHERE r.tenant_id=$1 AND r.organization_id=$2 AND r.state='active' AND r.role_id>$3 COLLATE "C" AND ($4 OR EXISTS(SELECT 1 FROM organization.role_bindings b JOIN organization.memberships m USING(tenant_id,organization_id,user_id) WHERE b.tenant_id=r.tenant_id AND b.organization_id=r.organization_id AND b.role_id=r.role_id AND b.user_id=$5 AND b.state='active' AND m.state='active' AND b.organization_member_version=m.version)) ORDER BY r.role_id COLLATE "C" LIMIT $6`
+		if q.IncludeTeamRoles {
+			query = effectiveTeamRolesSQL
+		}
+		rows, e := r.pool.Raw().Query(ctx, query, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit+1))
 		if e != nil {
 			return organization.View{}, storageError(ctx, e)
 		}
@@ -188,6 +195,9 @@ func (r *Repository) readDynamicRoles(ctx context.Context, q organization.Query,
 	if v.DynamicRole.Statements, e = decodeRoleStatements(wire); e != nil {
 		return organization.View{}, e
 	}
+	if q.TeamID != "" {
+		return r.readTeamRoleBinding(ctx, q, v)
+	}
 	if isRoleBindingMutation(q.Operation) || q.Operation == organization.GetDynamicRole && q.TargetID != "" {
 		if !scopeID(string(q.TargetID)) {
 			return organization.View{}, organization.ErrInvalidInput
@@ -235,7 +245,18 @@ func (p *Contributor) dynamicRoleFields(x organization.CommandInput) ([]identity
 	if e != nil {
 		return nil, organization.ErrInvalidInput
 	}
-	return []identity.FeatureField{text("custom-role-id", string(x.DynamicRole.ID)), text("custom-role-name", x.DynamicRole.Name), text("custom-role-statements", string(wire)), text("custom-role-policy", x.DynamicRoles.Fingerprint()), number("custom-role-version", x.DynamicRole.Version), number("binding-version", x.RoleBinding.Version), number("binding-member-version", x.RoleBinding.OrganizationMemberVersion)}, nil
+	version, member := x.RoleBinding.Version, x.RoleBinding.OrganizationMemberVersion
+	if x.TeamRoleBinding.TeamID != "" {
+		if p.config.DynamicRoles.TeamBindingsVersion != 1 || p.config.Teams.LifecycleVersion != 1 || !isRoleBindingMutation(x.Operation) {
+			return nil, organization.ErrInvalidInput
+		}
+		version, member = x.TeamRoleBinding.Version, 0
+	}
+	fields := []identity.FeatureField{text("custom-role-id", string(x.DynamicRole.ID)), text("custom-role-name", x.DynamicRole.Name), text("custom-role-statements", string(wire)), text("custom-role-policy", x.DynamicRoles.Fingerprint()), number("custom-role-version", x.DynamicRole.Version), number("binding-version", version), number("binding-member-version", member)}
+	if x.TeamRoleBinding.TeamID != "" {
+		fields = append(fields, text("team-role-id", string(x.Team.ID)), text("team-role-name", x.Team.Name), number("team-role-version", x.Team.Version))
+	}
+	return fields, nil
 }
 
 func (p *Contributor) decodeDynamicRole(c *nativeCommand, t func(string) string, n func(string) uint64) error {
@@ -259,6 +280,9 @@ func (p *Contributor) decodeDynamicRole(c *nativeCommand, t func(string) string,
 		}
 	} else if c.dynamicRole.Version == 0 {
 		return bad
+	}
+	if t("team-role-id") != "" {
+		return p.decodeTeamRole(c, t, n)
 	}
 	if isRoleBindingMutation(c.operation) {
 		if len(statements) != 0 || c.target.Version == 0 || c.target.AuthorizationVersion == 0 || !c.target.Role.Valid() || c.user.Validate(b.TenantID) != nil || c.user.Status != identity.StatusActive || c.operation == organization.RevokeDynamicRole && c.roleBinding.Version == 0 || c.roleBinding.Version == 0 && c.roleBinding.OrganizationMemberVersion != 0 || c.roleBinding.Version > 0 && c.roleBinding.OrganizationMemberVersion == 0 {
@@ -331,7 +355,12 @@ func (p *Contributor) mutateDynamicRole(ctx context.Context, w kernel.Work, c na
 			return identity.ConflictError{}
 		}
 		if isRoleBindingMutation(c.operation) {
-			if e = p.mutateRoleBinding(ctx, w, c); e != nil {
+			if c.teamRoleBinding.TeamID != "" {
+				e = p.mutateTeamRoleBinding(ctx, w, c)
+			} else {
+				e = p.mutateRoleBinding(ctx, w, c)
+			}
+			if e != nil {
 				return e
 			}
 		} else {

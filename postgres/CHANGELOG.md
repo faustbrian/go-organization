@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add opt-in team-role bindings through the existing role actions/coordinator.
+  Install `TeamRoleBindingMigrationSource` after dynamic roles and terminal team
+  lifecycle before selecting `DynamicRoles.TeamBindingsVersion: 1` on both
+  core and contributor. Bindings, team/policy epochs and protected effects commit
+  atomically; current compatible members inherit direct-plus-team deny precedence.
+
 - Require current manager/session authority for terminal custom-role mutation
   replay and expose scoped exact binding discovery for fresh native clients.
   Revoke/reassignment no longer requires retained application version history.

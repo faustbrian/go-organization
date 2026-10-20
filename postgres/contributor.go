@@ -54,7 +54,7 @@ type Contributor struct {
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
-	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil {
+	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 {
 		return nil, organization.ErrInvalidInput
 	}
 	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
@@ -117,6 +117,7 @@ type nativeCommand struct {
 	domainClaim                             organization.DomainClaim
 	dynamicRole                             organization.DynamicRole
 	roleBinding                             organization.RoleBinding
+	teamRoleBinding                         organization.TeamRoleBinding
 	actorFactorVersion, targetFactorVersion uint64
 }
 
@@ -223,6 +224,15 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		}
 	}
 	want := 16
+	_, teamRole := values["organization.team-role-id"]
+	if teamRole {
+		// Presence is the target discriminator. A malformed explicit team target
+		// must never be reinterpreted as an ordinary direct-member assignment.
+		if !isRoleBindingMutation(op) || values["organization.team-role-id"].Text == "" {
+			return bad()
+		}
+		want += 3
+	}
 	if isDynamicRoleMutation(op) {
 		want += 7
 	}
@@ -243,6 +253,10 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	}
 	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
 	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	if teamRole {
+		textNames = append(textNames, "team-role-id", "team-role-name")
+		numberNames = append(numberNames, "team-role-version")
+	}
 	if isDynamicRoleMutation(op) {
 		textNames = append(textNames, "custom-role-id", "custom-role-name", "custom-role-statements", "custom-role-policy")
 		numberNames = append(numberNames, "custom-role-version", "binding-version", "binding-member-version")
@@ -462,13 +476,13 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 	// ORDER BY user_id. Our SHARE locks commute with each other, but retaining
 	// the later user while waiting for the first would deadlock with that owner.
 	// Order transfer and role-update's two-user admissions; keep legacy paths.
-	actorFirst := (c.operation == organization.OwnerTransfer || c.operation == organization.UpdateMember || isRoleBindingMutation(c.operation)) && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
+	actorFirst := (c.operation == organization.OwnerTransfer || c.operation == organization.UpdateMember || isRoleBindingMutation(c.operation) && c.teamRoleBinding.TeamID == "") && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
 	if actorFirst {
 		if _, e = w.RequireActiveActorCredential(ctx, p, credential); e != nil {
 			return e
 		}
 	}
-	if !final && (c.operation == organization.AddMember || c.operation == organization.UpdateMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer || isRoleBindingMutation(c.operation)) {
+	if !final && (c.operation == organization.AddMember || c.operation == organization.UpdateMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer || isRoleBindingMutation(c.operation) && c.teamRoleBinding.TeamID == "") {
 		// The existing identity owner fences the exact target; organization
 		// never copies identity SQL or invents target security epochs.
 		if e = w.RequireActiveTargetUser(ctx, p, c.user); e != nil {
