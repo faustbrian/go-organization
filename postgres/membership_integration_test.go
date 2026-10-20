@@ -73,6 +73,7 @@ type orgFixture struct {
 	history              migrationList
 	teams                organization.TeamConfig
 	domains              organization.DomainConfig
+	dynamicRoles         organization.DynamicRoleConfig
 	ownerTransferPrimary *passwordpg.ActionPrimarySource
 }
 
@@ -244,7 +245,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, OwnerTransferPrimary: f.ownerTransferPrimary})
+	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, DynamicRoles: f.dynamicRoles, OwnerTransferPrimary: f.ownerTransferPrimary})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -276,6 +277,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 		return nil
 	}}, Sessions: f.sessions, Authorization: fixturePolicy{}, Risk: counters, Coordinator: coordinator, Registry: registry}
 	f.configuration.Core.Teams = f.teams
+	f.configuration.Core.DynamicRoles = f.dynamicRoles
 	f.configuration.Core.Domains = f.domains
 	if f.ownerTransferPrimary != nil {
 		f.configuration.Core.OwnerTransferAudience = transferAudience

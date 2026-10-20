@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Require current manager/session authority for terminal custom-role mutation
+  replay and expose scoped exact binding discovery for fresh native clients.
+  Revoke/reassignment no longer requires retained application version history.
+
+- Add opt-in durable custom-role CRUD, direct member assignment/revocation and
+  current primary permission checks using the existing authorization engine.
+  Install `DynamicRoleMigrationSource` before enabling identical `DynamicRoles`
+  policies in core/contributor configuration; the risk owner must classify
+  role assignment/revocation as privileged mutations. Role changes, policy
+  epochs, scoped binding authority, protected audit and lifecycle effects share
+  the existing coordinator transaction and original-command recovery.
+
 - Add opt-in native domain reserve/current-get/withdraw custody with global
   cross-tenant active-name uniqueness, retained immutable tombstones and atomic
   organization epoch, protected audit, lifecycle and original-command recovery.

@@ -4,6 +4,36 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Direct custom roles
+
+Install `DynamicRoleMigrationSource` after the base organization migration, then
+select identical nonzero `DynamicRoles` in core and contributor configuration.
+See [the public role/permission contract](../docs/dynamic-roles.md) for the
+finite catalog, exact-resource statements, version fences and unsupported team
+inheritance. The risk supplier must classify `identity.organization.role.assign`
+and `.revoke` as privileged; missing classifications fail closed, not bypass
+protected counters. Existing role create/update/delete classifications also apply.
+
+Use `PrepareCreateDynamicRole`, `PrepareUpdateDynamicRole`,
+`PrepareDeleteDynamicRole`, `PrepareAssignDynamicRole` or
+`PrepareRevokeDynamicRole`, then `Execute` the returned exact preparation.
+`GetDynamicRole`, `ListDynamicRoles` and `CheckPermission` perform current primary
+reads without positive caches. Deletion retires the role and all effective
+bindings without per-member fan-out; no reassignment is selected. Role identity
+tombstones count toward the configured per-organization limit.
+
+For a fresh client, `GetDynamicRole` with `TargetUserID` supplies the exact target
+membership and absent/live/tombstone binding versions needed by revoke or assign.
+The returned stored `RoleBinding.Active` flag is not permission: target membership
+must still be active at the recorded admission version. A terminal `Execute`
+replay applies the same current manager/session checks as explicit `Recover`.
+
+The existing coordinator commits each role/binding change, organization policy
+epoch, protected audit and lifecycle event atomically. Binding changes also
+advance the target's existing organization-scoped authorization authority.
+`Recovery`/`Recover` retain the original outcome, never replay a grant, and
+require the original actor's current owner/administrator authority and session.
+
 ## Domain reservation custody
 
 Apply `DomainClaimMigrationSource` after `MigrationSource`, then select identical
@@ -81,7 +111,8 @@ can manage nonowners; only owners may grant or demote owners. The last owner
 subject authority each advance once, and the organization policy epoch advances
 once; counts and required protected audit/lifecycle commit in the same existing
 Coordinator transaction. No new migration is required. Current reads and native
-management operations use the new role; no dynamic permission engine is selected.
+management operations use the new static role. Optional direct custom roles
+are selected separately and do not confer static management authority.
 Preserve the original prepared command and safe recovery binding. Exact
 self-demotion history follows current membership/action/query admission, not
 renewed manager privilege; other-target history retains current owner/admin
@@ -422,8 +453,9 @@ cover quotas, duplicate contention, scope, authority withdrawal, rollback,
 lost acknowledgement recovery and a populated forward migration. The optional
 [team lifecycle profile](../docs/team-lifecycle.md) adds exact get, bounded name
 update and terminal deletion after `TeamLifecycleMigrationSource` and explicit
-`Teams.LifecycleVersion: 1`. Active selection, dynamic roles and HTTP composition
-remain later profiles.
+`Teams.LifecycleVersion: 1`. Direct custom roles use their separate explicit
+profile; active selection, team-derived permissions and HTTP composition remain
+unselected.
 
 Recovery re-reads the submitted native session and the original current
 organization/member role, policy and scoped-authority epochs after external

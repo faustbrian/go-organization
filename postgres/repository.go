@@ -54,7 +54,7 @@ func (r *Repository) Read(ctx context.Context, q organization.Query) (organizati
 		return organization.View{}, organization.ErrInvalidInput
 	}
 	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.Update && q.Operation != organization.AddMember && q.Operation != organization.UpdateMember && q.Operation != organization.RemoveMember && q.Operation != organization.LeaveMember && q.Operation != organization.OwnerTransfer {
-		if !isTeamOperation(q.Operation) && !isDomainOperation(q.Operation) {
+		if !isTeamOperation(q.Operation) && !isDomainOperation(q.Operation) && !isDynamicRoleOperation(q.Operation) {
 			return organization.View{}, organization.ErrInvalidInput
 		}
 	}
@@ -85,6 +85,9 @@ WHERE o.tenant_id=$1 AND o.organization_id=$2 AND a.user_id=$3 AND o.state='acti
 	}
 	if v.Actor.AuthorizationVersion, e = positive(authority); e != nil {
 		return organization.View{}, e
+	}
+	if isDynamicRoleOperation(q.Operation) {
+		return r.readDynamicRoles(bounded, q, v)
 	}
 	if isTeamOperation(q.Operation) {
 		return r.readTeams(bounded, q, v)

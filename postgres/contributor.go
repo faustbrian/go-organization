@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ type ContributorConfig struct {
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	Teams                                            organization.TeamConfig
 	Domains                                          organization.DomainConfig
+	DynamicRoles                                     organization.DynamicRoleConfig
 	// OwnerTransferPrimary explicitly enables the operation-bound password
 	// profile. Omission preserves the original operation set and command bytes.
 	OwnerTransferPrimary *passwordpg.ActionPrimarySource
@@ -52,7 +54,7 @@ type Contributor struct {
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
-	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil {
+	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil {
 		return nil, organization.ErrInvalidInput
 	}
 	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
@@ -65,6 +67,7 @@ func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, 
 		keys[version] = key
 	}
 	c.LookupKeys = keys
+	c.DynamicRoles.Catalog = slices.Clone(c.DynamicRoles.Catalog)
 	return &Contributor{repository: repository, config: c}, nil
 }
 
@@ -73,6 +76,9 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 }
 func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.UpdateMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
+	if p != nil && p.config.DynamicRoles.Version > 0 {
+		ops = append(ops, organization.CreateDynamicRole.Descriptor(), organization.UpdateDynamicRole.Descriptor(), organization.DeleteDynamicRole.Descriptor(), organization.AssignDynamicRole.Descriptor(), organization.RevokeDynamicRole.Descriptor())
+	}
 	if p != nil && p.config.OwnerTransferPrimary != nil {
 		ops = append(ops, organization.OwnerTransfer.Descriptor())
 	}
@@ -109,6 +115,8 @@ type nativeCommand struct {
 	team                                    organization.Team
 	teamMember                              organization.TeamMember
 	domainClaim                             organization.DomainClaim
+	dynamicRole                             organization.DynamicRole
+	roleBinding                             organization.RoleBinding
 	actorFactorVersion, targetFactorVersion uint64
 }
 
@@ -139,6 +147,13 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 		return identity.Command{}, organization.ErrForbidden
 	}
 	f = append(f, membershipFields(x)...)
+	if isDynamicRoleMutation(x.Operation) {
+		fields, err := p.dynamicRoleFields(x)
+		if err != nil {
+			return identity.Command{}, err
+		}
+		f = append(f, fields...)
+	}
 	if isDomainMutation(x.Operation) {
 		if p.config.Domains.MaximumClaims == 0 || x.Domains != p.config.Domains {
 			return identity.Command{}, organization.ErrInvalidInput
@@ -208,6 +223,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		}
 	}
 	want := 16
+	if isDynamicRoleMutation(op) {
+		want += 7
+	}
 	if isDomainMutation(op) {
 		want += 6
 	}
@@ -225,6 +243,10 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	}
 	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
 	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	if isDynamicRoleMutation(op) {
+		textNames = append(textNames, "custom-role-id", "custom-role-name", "custom-role-statements", "custom-role-policy")
+		numberNames = append(numberNames, "custom-role-version", "binding-version", "binding-member-version")
+	}
 	if isDomainMutation(op) {
 		textNames = append(textNames, "claim-id", "domain", "claim-state")
 		numberNames = append(numberNames, "claim-version", "domain-policy-version", "maximum-domain-claims")
@@ -260,7 +282,11 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		return bad()
 	}
 	c := nativeCommand{spec: s, operation: op, org: organization.Organization{ID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, Slug: t("slug"), Name: t("name"), Version: n("version"), Active: true}, actor: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: identity.UserID(s.Binding.ActorID), Role: organization.Role(t("actor-role")), Version: n("actor-version"), AuthorizationVersion: n("actor-authorization"), Active: true}, target: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Role: organization.Role(t("member-role")), Version: n("member-version"), AuthorizationVersion: n("member-authorization")}, user: identity.User{ID: s.Binding.UserID, TenantID: s.Binding.TenantID, Version: n("target-version"), Status: identity.Status(t("target-status"))}, role: organization.Role(t("role")), original: record, until: until, actorFactorVersion: actorFactorVersion, targetFactorVersion: targetFactorVersion}
-	if isDomainMutation(op) {
+	if isDynamicRoleMutation(op) {
+		if e = p.decodeDynamicRole(&c, t, n); e != nil {
+			return bad()
+		}
+	} else if isDomainMutation(op) {
 		domain, err := organization.CanonicalDomain(t("domain"))
 		if p.config.Domains.MaximumClaims == 0 || n("domain-policy-version") != p.config.Domains.Version || n("maximum-domain-claims") != p.config.Domains.MaximumClaims || err != nil || domain != t("domain") || !scope(t("claim-id")) || c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.user.Version != 0 || c.user.Status != "" || c.role != "" || string(s.Binding.UserID) != string(s.Binding.ActorID) || t("claim-state") != string(organization.DomainRequested) || op == organization.ReserveDomain && n("claim-version") != 0 || op == organization.WithdrawDomain && n("claim-version") != 1 {
 			return bad()
@@ -330,6 +356,16 @@ func (p *Contributor) ValidateFeatureCommand(command identity.Command, plan kern
 
 func events(op organization.Operation) (string, string) {
 	switch op {
+	case organization.CreateDynamicRole:
+		return "organization.role_created.v1", string(op)
+	case organization.UpdateDynamicRole:
+		return "organization.role_updated.v1", string(op)
+	case organization.DeleteDynamicRole:
+		return "organization.role_deleted.v1", string(op)
+	case organization.AssignDynamicRole:
+		return "organization.role_assigned.v1", string(op)
+	case organization.RevokeDynamicRole:
+		return "organization.role_revoked.v1", string(op)
 	case organization.ReserveDomain:
 		return "organization.domain_reserved.v1", string(organization.ReserveDomain)
 	case organization.WithdrawDomain:
@@ -426,13 +462,13 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 	// ORDER BY user_id. Our SHARE locks commute with each other, but retaining
 	// the later user while waiting for the first would deadlock with that owner.
 	// Order transfer and role-update's two-user admissions; keep legacy paths.
-	actorFirst := (c.operation == organization.OwnerTransfer || c.operation == organization.UpdateMember) && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
+	actorFirst := (c.operation == organization.OwnerTransfer || c.operation == organization.UpdateMember || isRoleBindingMutation(c.operation)) && string(c.spec.Binding.ActorID) < string(c.spec.Binding.UserID)
 	if actorFirst {
 		if _, e = w.RequireActiveActorCredential(ctx, p, credential); e != nil {
 			return e
 		}
 	}
-	if !final && (c.operation == organization.AddMember || c.operation == organization.UpdateMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer) {
+	if !final && (c.operation == organization.AddMember || c.operation == organization.UpdateMember || c.operation == organization.AddTeamMember || c.operation == organization.RemoveTeamMember || c.operation == organization.OwnerTransfer || isRoleBindingMutation(c.operation)) {
 		// The existing identity owner fences the exact target; organization
 		// never copies identity SQL or invents target security epochs.
 		if e = w.RequireActiveTargetUser(ctx, p, c.user); e != nil {

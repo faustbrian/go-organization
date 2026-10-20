@@ -376,6 +376,12 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		t.Fatal("real registrations did not create distinct users")
 	}
 	service := consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+	if invitationProfile == "dynamic-role" {
+		exerciseGenuineDynamicRoles(t, ctx, db, service, owner, member, signinOwner(), memberID, func() *organizationpg.Service {
+			return consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+		})
+		return
+	}
 	id, e := identity.NewSubjectID()
 	if e != nil {
 		t.Fatal(e)
@@ -474,7 +480,7 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 		primary = selectedPrimary[0]
 		proofAudience = transferAudience
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, OwnerTransferPrimary: primary})
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: customRoleConfig(), OwnerTransferPrimary: primary})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -518,7 +524,7 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 	if e != nil {
 		t.Fatal(e)
 	}
-	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, OwnerTransferAudience: proofAudience, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
+	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: customRoleConfig(), OwnerTransferAudience: proofAudience, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
 		_, e := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), e)
 	}}, Sessions: sessions, Authorization: authorize, Risk: counters, Coordinator: coordinator, Registry: registry})

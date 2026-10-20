@@ -77,6 +77,8 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 		e = p.update(ctx, w, c)
 	} else if c.operation == organization.OwnerTransfer {
 		e = p.transferOwner(ctx, w, c)
+	} else if isDynamicRoleMutation(c.operation) {
+		e = p.mutateDynamicRole(ctx, w, c)
 	} else if isTeamMutation(c.operation) {
 		e = p.mutateTeam(ctx, w, c)
 	} else if isDomainMutation(c.operation) {

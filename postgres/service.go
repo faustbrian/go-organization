@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -45,7 +46,7 @@ type Service struct {
 }
 
 func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
-	if p == nil || p.repository == nil || c.Sessions == nil || c.Authorization == nil || c.Risk == nil || c.Coordinator == nil || c.Registry == nil || c.Core.PolicyID != p.config.PolicyID || c.Core.PolicyVersion != p.config.PolicyVersion || c.Core.MaximumMembers != p.config.MaximumMembers || c.Core.MaximumPerUser != p.config.MaximumPerUser || c.Core.MaximumPerTenant != p.config.MaximumPerTenant || c.Core.Teams != p.config.Teams || c.Core.Domains != p.config.Domains {
+	if p == nil || p.repository == nil || c.Sessions == nil || c.Authorization == nil || c.Risk == nil || c.Coordinator == nil || c.Registry == nil || c.Core.PolicyID != p.config.PolicyID || c.Core.PolicyVersion != p.config.PolicyVersion || c.Core.MaximumMembers != p.config.MaximumMembers || c.Core.MaximumPerUser != p.config.MaximumPerUser || c.Core.MaximumPerTenant != p.config.MaximumPerTenant || c.Core.Teams != p.config.Teams || c.Core.Domains != p.config.Domains || c.Core.DynamicRoles.Fingerprint() != p.config.DynamicRoles.Fingerprint() {
 		return nil, organization.ErrInvalidInput
 	}
 	if (c.Core.OwnerTransferAudience == "") != (p.config.OwnerTransferPrimary == nil) {
@@ -58,6 +59,7 @@ func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
 	if e != nil {
 		return nil, e
 	}
+	c.Core.DynamicRoles.Catalog = slices.Clone(c.Core.DynamicRoles.Catalog)
 	selected := []kernel.ContributorDescriptor{}
 	counts := map[string]int{}
 	for _, d := range c.Registry.Descriptors() {
@@ -296,6 +298,9 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	}
 	b := r.Binding
 	op := organization.Operation(b.OperationID)
+	if isDynamicRoleMutation(op) && s.config.Core.DynamicRoles.Version == 0 {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
 	if isDomainMutation(op) && s.config.Core.Domains.MaximumClaims == 0 {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
@@ -344,7 +349,7 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 			return organization.StoreResult{}, readErr
 		}
 		admission = view
-		if op == organization.Update || op == organization.UpdateMember || op == organization.OwnerTransfer || isTeamMutation(op) || isDomainMutation(op) {
+		if op == organization.Update || op == organization.UpdateMember || op == organization.OwnerTransfer || isTeamMutation(op) || isDomainMutation(op) || isDynamicRoleMutation(op) {
 			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
 				return organization.StoreResult{}, e
 			}
@@ -468,10 +473,10 @@ func (u *unitOfWork) Execute(ctx context.Context, c organization.Command) (organ
 	s, p := u.service, u.prepared
 	reservation, receipt, e := s.config.Coordinator.ReserveCommand(ctx, p.binding, p.native, p.plan)
 	if e != nil || reservation == (kernel.Reservation{}) {
-		if (p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
+		if (p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID)) || isDynamicRoleMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
 			// Terminal replay skips Apply's protected admission. Use current
 			// session/membership/action/query authority for historical disclosure,
-			// including self-demotion and domain custody, never the old manager
+			// including self-demotion, domain custody and custom roles, never the old manager
 			// role or source session as a lease.
 			x, err := c.Input()
 			if err != nil {

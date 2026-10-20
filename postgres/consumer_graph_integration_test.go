@@ -351,6 +351,8 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 		}
 		if r.Subject.Kind == authorization.SubjectUser {
 			switch r.Action {
+			case "identity.organization.role.create", "identity.organization.role.update", "identity.organization.role.delete", "identity.organization.role.get", "identity.organization.role.list", "identity.organization.role.assign", "identity.organization.role.revoke", "identity.organization.permission-check":
+				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.organization.domain.reserve", "identity.organization.domain.withdraw", "identity.organization.domain.get":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.password.verify":
