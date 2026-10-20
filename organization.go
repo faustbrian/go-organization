@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,9 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
+	if dynamicRoleMutation(o) {
+		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-dynamic-role", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
+	}
 	if domainMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-domain-reservation", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
@@ -133,6 +137,8 @@ type Query struct {
 	TeamID         ID
 	TeamCursor     string
 	DomainClaimID  ID
+	DynamicRoleID  ID
+	RoleCursor     string
 }
 
 // View is an independently owned primary snapshot. OwnerCount includes active
@@ -150,6 +156,10 @@ type View struct {
 	TeamMembers    []TeamMember
 	NextTeamCursor string
 	DomainClaim    DomainClaim
+	DynamicRole    DynamicRole
+	DynamicRoles   []DynamicRole
+	RoleBinding    RoleBinding
+	NextRoleCursor string
 }
 
 // Repository reads only authoritative owned organization state and delegates
@@ -194,6 +204,7 @@ type Config struct {
 	ValidateCanonicalID                              func(context.Context, ID) error
 	Teams                                            TeamConfig
 	Domains                                          DomainConfig
+	DynamicRoles                                     DynamicRoleConfig
 	// OwnerTransferAudience explicitly selects the signed primary-proof audience.
 	// Empty disables ownership transfer; it is independent of session audience.
 	OwnerTransferAudience string
@@ -210,11 +221,12 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
 	c.OwnerTransferAudience = strings.Clone(c.OwnerTransferAudience)
+	c.DynamicRoles = c.DynamicRoles.clone()
 	return &Service{sessions: sessions, repository: repository, policy: policy, config: c}, nil
 }
 
@@ -303,6 +315,9 @@ type CommandInput struct {
 	Teams                                            TeamConfig
 	DomainClaim                                      DomainClaim
 	Domains                                          DomainConfig
+	DynamicRole                                      DynamicRole
+	RoleBinding                                      RoleBinding
+	DynamicRoles                                     DynamicRoleConfig
 	OwnerTransferProof                               authentication.ReauthenticationProof
 }
 
@@ -320,7 +335,10 @@ func (c Command) Input() (CommandInput, error) {
 	if c.state == nil {
 		return CommandInput{}, ErrInvalidInput
 	}
-	return c.state.input, nil
+	x := c.state.input
+	x.DynamicRole.Statements = slices.Clone(x.DynamicRole.Statements)
+	x.DynamicRoles = x.DynamicRoles.clone()
+	return x, nil
 }
 func (Command) Format(s fmt.State, _ rune) {
 	_, _ = io.WriteString(s, "organization.Command(redacted)")

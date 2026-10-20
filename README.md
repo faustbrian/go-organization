@@ -13,6 +13,19 @@ while protecting the last owner.
 
 ## API and selection
 
+`DynamicRoleConfig` selects [bounded direct custom roles](docs/dynamic-roles.md).
+Current owners/administrators create/read/list/update/delete roles and assign or
+revoke them for current members. `CheckPermission` evaluates exact registered
+action/resource statements through the existing authorization RBAC engine, with
+explicit deny precedence and a required current organization policy version.
+Custom roles confer no organization-management or ownership authority. Zero
+configuration disables this profile; team-derived permissions remain unsupported.
+
+`GetDynamicRole` optionally accepts `TargetUserID` to return that exact member's
+current membership and absent/live/tombstone role binding. Fresh managers can
+discover the versions needed to revoke or reassign without application history;
+`ListDynamicRoles` does not accept a target selector.
+
 `DomainConfig` selects authenticated [domain reservation custody](docs/domain-claims.md):
 current owners/administrators prepare a reservation, read their organization's
 current claim, and withdraw its exact version. Zero leaves this profile disabled.
@@ -112,8 +125,7 @@ The root boundary does not own:
 - session persistence or application authorization policy; or
 - database clients, migrations, transactions, caches, or background workers.
 
-Dynamic team permissions, custom
-roles, domain challenges and ownership proofs,
+Dynamic team permissions, domain challenges and ownership proofs,
 archive/delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.
@@ -276,8 +288,9 @@ Organization removal immediately makes old team bindings unusable; re-admission
 requires an explicit team add against the new organization-member version and
 retained team tombstone version. The additional [team lifecycle profile](docs/team-lifecycle.md)
 selects exact get, versioned name update and terminal delete only after its
-forward migration and explicit `LifecycleVersion: 1`. Dynamic roles/permissions,
-active team, HTTP/reference registration and full M23 remain unselected.
+forward migration and explicit `LifecycleVersion: 1`. Direct custom roles are
+selected separately by `DynamicRoleConfig`; team-derived permissions, active
+team, HTTP/reference registration and full M23 remain unselected.
 
 ## License
 

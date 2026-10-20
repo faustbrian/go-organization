@@ -11,6 +11,14 @@ Bindings retain the organization-member version, so removal/re-admission cannot
 resurrect old teams. Zero team configuration advertises no team operations.
 The controls below distinguish these finite profiles from later requirements.
 
+The optional [direct custom-role profile](dynamic-roles.md) permits only exact
+registered application permissions within a deployment ceiling. Current static
+owner/admin management authority remains independent; an assigned role cannot
+become an owner or grant organization-management access. Explicit deny wins and
+unknown statements fail closed. Every check requires the current organization
+policy epoch; removal/readmission cannot revive old direct bindings. Team-derived
+permissions remain unsupported.
+
 ## Selected profile
 
 Public calls use the real native stateful opaque SessionService and external
@@ -86,7 +94,7 @@ not infer those capabilities from ambient process state.
 - **Severity:** critical if treated as deployable.
 - **Disposition:** release blocker; not accepted for production.
 - **Owner:** go-organization maintainers.
-- **Rationale:** full invitation lifecycle, dynamic team permissions, role editing, ownership
+- **Rationale:** full invitation lifecycle, dynamic team permissions, ownership
   transfer, domain proofs, archive/delete commands, active selection, cache
   closure, SSO/SCIM, MFA/passkeys and HTTP/browser transport are unselected.
 - **Mitigation:** keep the modules experimental; do not infer those controls
