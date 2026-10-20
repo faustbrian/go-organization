@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add opt-in native domain reserve/current-get/withdraw custody with global
+  cross-tenant active-name uniqueness, retained immutable tombstones and atomic
+  organization epoch, protected audit, lifecycle and original-command recovery.
+  Install `DomainClaimMigrationSource` and use a risk supplier with explicit
+  privileged reserve/withdraw classifications before enabling `DomainConfig`.
+  This profile does not establish domain ownership or SSO routing authority.
+
 - Add current owner/administrator invitation resend with atomic predecessor
   supersession, one successor grant/encrypted delivery and unchanged recipient,
   member role and deadline. Install `InvitationResendMigrationSource` after

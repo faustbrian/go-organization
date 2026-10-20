@@ -4,6 +4,24 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Domain reservation custody
+
+Apply `DomainClaimMigrationSource` after `MigrationSource`, then select identical
+nonzero `Domains` in core and contributor configuration. Its `MaximumClaims`
+bounds all retained claims per organization, including withdrawal tombstones.
+The risk supplier must classify `identity.organization.domain.reserve` and
+`identity.organization.domain.withdraw` as privileged mutations; an older
+supplier denies those operations rather than silently bypassing counters.
+
+`PrepareReserveDomain`, `GetDomainClaim` and `PrepareWithdrawDomain` provide the
+[reservation-only public profile](../docs/domain-claims.md). PostgreSQL's global
+partial unique index arbitrates requested canonical domains across tenants.
+The same coordinator commits claim custody, organization epoch, participant
+binding, protected audit and lifecycle outbox together. Replay and `Recover`
+use the original command identity; reconstruction needs only the safe `Recovery`
+metadata and fresh current owner/administrator authentication. Neither a
+reservation nor a historical committed receipt is domain ownership evidence.
+
 ## Composition and adoption
 
 1. Apply the identity directory/credential/status, native session, authorization

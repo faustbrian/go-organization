@@ -432,6 +432,10 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	recoveryOwner := owner
 	trackOwnerSignin := func() organization.Authentication { recoveryOwner = signinOwner(); return recoveryOwner }
+	if invitationProfile == "domain" {
+		exerciseGenuineDomainClaims(t, ctx, db, service, owner, member, trackOwnerSignin(), memberID)
+		return
+	}
 	if invitationProfile == "member-role" {
 		exerciseGenuineMemberRoleUpdate(t, ctx, pool, service, sessions, owner, member, ownerID, memberID, signinRecipient, trackOwnerSignin, func(p *database.Pool) *organizationpg.Service {
 			return consumerOrganizationService(t, p, sessions, profile, lookup, keys, material)
@@ -463,13 +467,14 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 		t.Fatal(e)
 	}
 	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100, LifecycleVersion: 1}
+	domains := organization.DomainConfig{Version: 1, MaximumClaims: 100}
 	var primary *passwordpg.ActionPrimarySource
 	var proofAudience string
 	if len(selectedPrimary) > 0 {
 		primary = selectedPrimary[0]
 		proofAudience = transferAudience
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, OwnerTransferPrimary: primary})
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, OwnerTransferPrimary: primary})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -513,7 +518,7 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 	if e != nil {
 		t.Fatal(e)
 	}
-	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, OwnerTransferAudience: proofAudience, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
+	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, OwnerTransferAudience: proofAudience, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
 		_, e := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), e)
 	}}, Sessions: sessions, Authorization: authorize, Risk: counters, Coordinator: coordinator, Registry: registry})

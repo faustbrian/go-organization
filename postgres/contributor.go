@@ -35,6 +35,7 @@ type ContributorConfig struct {
 	PolicyVersion                                    uint64
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	Teams                                            organization.TeamConfig
+	Domains                                          organization.DomainConfig
 	// OwnerTransferPrimary explicitly enables the operation-bound password
 	// profile. Omission preserves the original operation set and command bytes.
 	OwnerTransferPrimary *passwordpg.ActionPrimarySource
@@ -51,7 +52,7 @@ type Contributor struct {
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
-	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil {
+	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil {
 		return nil, organization.ErrInvalidInput
 	}
 	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
@@ -74,6 +75,9 @@ func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.UpdateMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
 	if p != nil && p.config.OwnerTransferPrimary != nil {
 		ops = append(ops, organization.OwnerTransfer.Descriptor())
+	}
+	if p != nil && p.config.Domains.MaximumClaims > 0 {
+		ops = append(ops, organization.ReserveDomain.Descriptor(), organization.WithdrawDomain.Descriptor())
 	}
 	if p != nil && p.config.Teams.MaximumTeams > 0 {
 		ops = append(ops, organization.CreateTeam.Descriptor(), organization.AddTeamMember.Descriptor(), organization.RemoveTeamMember.Descriptor())
@@ -104,6 +108,7 @@ type nativeCommand struct {
 	until                                   time.Time
 	team                                    organization.Team
 	teamMember                              organization.TeamMember
+	domainClaim                             organization.DomainClaim
 	actorFactorVersion, targetFactorVersion uint64
 }
 
@@ -134,6 +139,12 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 		return identity.Command{}, organization.ErrForbidden
 	}
 	f = append(f, membershipFields(x)...)
+	if isDomainMutation(x.Operation) {
+		if p.config.Domains.MaximumClaims == 0 || x.Domains != p.config.Domains {
+			return identity.Command{}, organization.ErrInvalidInput
+		}
+		f = append(f, text("claim-id", string(x.DomainClaim.ID)), text("domain", x.DomainClaim.Domain), text("claim-state", string(x.DomainClaim.State)), number("claim-version", x.DomainClaim.Version), number("domain-policy-version", x.Domains.Version), number("maximum-domain-claims", x.Domains.MaximumClaims))
+	}
 	if isTeamMutation(x.Operation) {
 		if p.config.Teams.MaximumTeams == 0 || x.Teams != p.config.Teams {
 			return identity.Command{}, organization.ErrInvalidInput
@@ -197,6 +208,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		}
 	}
 	want := 16
+	if isDomainMutation(op) {
+		want += 6
+	}
 	if isTeamMutation(op) {
 		want += 8
 		if isTeamLifecycle(op) {
@@ -211,6 +225,10 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	}
 	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
 	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	if isDomainMutation(op) {
+		textNames = append(textNames, "claim-id", "domain", "claim-state")
+		numberNames = append(numberNames, "claim-version", "domain-policy-version", "maximum-domain-claims")
+	}
 	if isTeamMutation(op) {
 		textNames = append(textNames, "team-id", "team-name")
 		numberNames = append(numberNames, "team-version", "team-member-version", "team-member-organization-version", "team-policy-version", "maximum-teams", "maximum-team-members")
@@ -242,7 +260,13 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		return bad()
 	}
 	c := nativeCommand{spec: s, operation: op, org: organization.Organization{ID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, Slug: t("slug"), Name: t("name"), Version: n("version"), Active: true}, actor: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: identity.UserID(s.Binding.ActorID), Role: organization.Role(t("actor-role")), Version: n("actor-version"), AuthorizationVersion: n("actor-authorization"), Active: true}, target: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Role: organization.Role(t("member-role")), Version: n("member-version"), AuthorizationVersion: n("member-authorization")}, user: identity.User{ID: s.Binding.UserID, TenantID: s.Binding.TenantID, Version: n("target-version"), Status: identity.Status(t("target-status"))}, role: organization.Role(t("role")), original: record, until: until, actorFactorVersion: actorFactorVersion, targetFactorVersion: targetFactorVersion}
-	if isTeamMutation(op) {
+	if isDomainMutation(op) {
+		domain, err := organization.CanonicalDomain(t("domain"))
+		if p.config.Domains.MaximumClaims == 0 || n("domain-policy-version") != p.config.Domains.Version || n("maximum-domain-claims") != p.config.Domains.MaximumClaims || err != nil || domain != t("domain") || !scope(t("claim-id")) || c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.target.Version != 0 || c.target.AuthorizationVersion != 0 || c.target.Role != "" || c.user.Version != 0 || c.user.Status != "" || c.role != "" || string(s.Binding.UserID) != string(s.Binding.ActorID) || t("claim-state") != string(organization.DomainRequested) || op == organization.ReserveDomain && n("claim-version") != 0 || op == organization.WithdrawDomain && n("claim-version") != 1 {
+			return bad()
+		}
+		c.domainClaim = organization.DomainClaim{ID: organization.ID(t("claim-id")), OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, Domain: domain, State: organization.DomainRequested, Version: n("claim-version")}
+	} else if isTeamMutation(op) {
 		if p.config.Teams.MaximumTeams == 0 || n("team-policy-version") != p.config.Teams.Version || n("maximum-teams") != p.config.Teams.MaximumTeams || n("maximum-team-members") != p.config.Teams.MaximumMembers || !scope(t("team-id")) || !boundedTeamName(t("team-name")) || c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.role != "" {
 			return bad()
 		}
@@ -306,6 +330,10 @@ func (p *Contributor) ValidateFeatureCommand(command identity.Command, plan kern
 
 func events(op organization.Operation) (string, string) {
 	switch op {
+	case organization.ReserveDomain:
+		return "organization.domain_reserved.v1", string(organization.ReserveDomain)
+	case organization.WithdrawDomain:
+		return "organization.domain_withdrawn.v1", string(organization.WithdrawDomain)
 	case organization.Create:
 		return "organization.created.v1", "identity.organization.create"
 	case organization.Update:
@@ -467,5 +495,13 @@ func (p *Contributor) CheckFeatureCommit(ctx context.Context, w kernel.Work, com
 			return err
 		}
 	}
+	if isDomainMutation(c.operation) {
+		if e = p.checkDomainCommit(ctx, w, c); e != nil {
+			return e
+		}
+	}
+	// Domain reads can wait beyond the original observation/session lifetime.
+	// Keep their current-state checks before admission's final primary-time
+	// fence; neither a successful read nor this hook renews that observation.
 	return p.admit(ctx, w, c, command, true)
 }
