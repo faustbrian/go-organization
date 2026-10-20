@@ -68,7 +68,7 @@ type ownerFixture struct {
 
 // Use only actual native proof issuance, admission, signing, risk/audit and
 // transactional consumption. This helper adds no domain store or auth engine.
-func transferProofSource(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, storage sessionpg.Config, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, policy authorization.Service, revision uint64, tenants []string, fingerprintKey [32]byte) (*passwordpg.ReauthenticationService, *passwordpg.ActionPrimarySource, primitive.EncodedHash) {
+func transferProofSource(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, storage sessionpg.Config, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, policy authorization.Service, revision uint64, tenants []string, fingerprintKey [32]byte, lifecycle ...bool) (*passwordpg.ReauthenticationService, *passwordpg.ActionPrimarySource, primitive.EncodedHash) {
 	t.Helper()
 	install := func(namespace string, source migrations.Source) {
 		t.Helper()
@@ -90,7 +90,15 @@ func transferProofSource(t *testing.T, ctx context.Context, pool *database.Pool,
 			}
 		}
 	}
-	install("identity_password", passwordpg.ActionReauthenticationMigrationSource{Base: passwordpg.UsernameSigninMigrationSource{Base: passwordpg.EmailReauthenticationMigrationSource{}, Version: 10}, Version: 11})
+	var history migrations.Source = passwordpg.ActionReauthenticationMigrationSource{Base: passwordpg.UsernameSigninMigrationSource{Base: passwordpg.EmailReauthenticationMigrationSource{}, Version: 10}, Version: 11}
+	targets := []passwordpg.ReauthenticationTarget{{Purpose: "identity.password.verify", Action: string(organization.OwnerTransfer), Audience: transferAudience}}
+	if len(lifecycle) > 0 && lifecycle[0] {
+		history = passwordpg.OrganizationLifecycleReauthenticationMigrationSource{Base: history, Version: 12}
+		for _, op := range []organization.Operation{organization.Archive, organization.Restore} {
+			targets = append(targets, passwordpg.ReauthenticationTarget{Purpose: "identity.password.verify", Action: string(op), Audience: transferAudience})
+		}
+	}
+	install("identity_password", history)
 	install("transfer_admission", riskpg.DurableCounterMigrationSource{Schema: "transfer_admission", Version: 1})
 	material := func() []byte {
 		b := make([]byte, 32)
@@ -156,7 +164,7 @@ func transferProofSource(t *testing.T, ctx context.Context, pool *database.Pool,
 	// Race instrumentation can stretch real Argon2 work beyond this fixture's
 	// former three-second request budget. Keep bounded setup headroom without
 	// changing production deadlines, signed proof age or session freshness.
-	source, err := passwordpg.NewReauthenticationService(pool, passwordpg.ReauthenticationConfig{Repository: passwordpg.Config{MaximumDuration: 8 * time.Second, HashPolicy: primitive.DefaultPolicy()}, Verifier: password.VerifierConfig{Primitive: crypto, MaximumBytes: 128, Timeout: 5 * time.Second, DummyHash: dummy, Now: time.Now}, Session: storage, Profile: profile, LookupKeys: []session.DigestKey{lookup}, Risk: risk.AuthenticationAdmissionCustodyConfig{Evaluation: evaluator, ConfigurationID: "transfer-verify", Keys: []risk.EvidenceKey{evidence}}, Coordinator: kernel.CoordinatorConfig{MaximumDuration: 8 * time.Second, LeaseDuration: time.Minute, CurrentFingerprintKeyVersion: 1, RetainedFingerprintKeys: map[uint32][32]byte{1: fingerprintKey}, QueryPolicy: &query, AdmissionPolicy: &query}, SigningKey: signer, VerificationKeys: map[string]ed25519.PublicKey{"transfer-proof": private.Public().(ed25519.PublicKey)}, Issuer: "organization-test", Environment: "isolated", Targets: []passwordpg.ReauthenticationTarget{{Purpose: "identity.password.verify", Action: string(organization.OwnerTransfer), Audience: transferAudience}}, TTL: 5 * time.Minute, IdentifierKey: material()})
+	source, err := passwordpg.NewReauthenticationService(pool, passwordpg.ReauthenticationConfig{Repository: passwordpg.Config{MaximumDuration: 8 * time.Second, HashPolicy: primitive.DefaultPolicy()}, Verifier: password.VerifierConfig{Primitive: crypto, MaximumBytes: 128, Timeout: 5 * time.Second, DummyHash: dummy, Now: time.Now}, Session: storage, Profile: profile, LookupKeys: []session.DigestKey{lookup}, Risk: risk.AuthenticationAdmissionCustodyConfig{Evaluation: evaluator, ConfigurationID: "transfer-verify", Keys: []risk.EvidenceKey{evidence}}, Coordinator: kernel.CoordinatorConfig{MaximumDuration: 8 * time.Second, LeaseDuration: time.Minute, CurrentFingerprintKeyVersion: 1, RetainedFingerprintKeys: map[uint32][32]byte{1: fingerprintKey}, QueryPolicy: &query, AdmissionPolicy: &query}, SigningKey: signer, VerificationKeys: map[string]ed25519.PublicKey{"transfer-proof": private.Public().(ed25519.PublicKey)}, Issuer: "organization-test", Environment: "isolated", Targets: targets, TTL: 5 * time.Minute, IdentifierKey: material()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +175,7 @@ func transferProofSource(t *testing.T, ctx context.Context, pool *database.Pool,
 	return source, primary, dummy
 }
 
-func newOwnerFixture(t *testing.T) *ownerFixture {
+func newOwnerFixture(t *testing.T, lifecycle ...bool) *ownerFixture {
 	t.Helper()
 	tenants := []identity.TenantID{}
 	users := []identity.UserID{}
@@ -177,7 +185,15 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 	for _, user := range transferUsers {
 		users = append(users, identity.UserID(user))
 	}
-	f := newOrgFixtureWithIdentities(t, tenants, users, mfapg.MigrationSource{Version: 310})
+	additions := []migrations.Source{}
+	if len(lifecycle) > 0 && lifecycle[0] {
+		additions = append(additions, organizationpg.TeamMigrationSource{Version: 303}, organizationpg.TeamLifecycleMigrationSource{Version: 304}, organizationpg.DynamicRoleMigrationSource{Version: 305}, organizationpg.TeamRoleBindingMigrationSource{Version: 306}, organizationpg.DomainClaimMigrationSource{Version: 307})
+	}
+	additions = append(additions, mfapg.MigrationSource{Version: 310})
+	if len(lifecycle) > 0 && lifecycle[0] {
+		additions = append(additions, organizationpg.LifecycleMigrationSource{Version: 311})
+	}
+	f := newOrgFixtureWithIdentities(t, tenants, users, additions...)
 	for _, tenant := range transferTenants {
 		for alias, user := range transferUsers {
 			f.authentication[tenant+":"+alias] = f.auth(tenant, user)
@@ -204,18 +220,26 @@ SELECT tenant_id,user_id,1,0,decode(md5(tenant_id||':'||user_id),'hex'),'identit
 	for _, tenant := range tenants {
 		tenantNames = append(tenantNames, string(tenant))
 	}
-	source, primary, hash := transferProofSource(t, f.ctx, f.pool, db, sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, f.profile, f.key, f.configuration.Authorization, 1, tenantNames, [32]byte{0x45})
+	source, primary, hash := transferProofSource(t, f.ctx, f.pool, db, sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, f.profile, f.key, f.configuration.Authorization, 1, tenantNames, [32]byte{0x45}, lifecycle...)
 	if _, err = f.pool.Raw().Exec(f.ctx, `INSERT INTO identity_password.credentials(tenant_id,user_id,credential_id,version,algorithm,encoded_hash) SELECT tenant_id,user_id,credential_id,version,'argon2id',$1 FROM identity.credential_references WHERE kind=1`, hash.String()); err != nil {
 		t.Fatal(err)
 	}
 	// Recomposition also preserves primary custody in the existing lost-commit
 	// fixture's copied configuration, without a second coordinator implementation.
 	f.ownerTransferPrimary = primary
+	if len(lifecycle) > 0 && lifecycle[0] {
+		f.lifecycle = organization.LifecycleConfig{Version: 1, ProofAudience: transferAudience}
+		f.archivePrimary, f.restorePrimary = lifecyclePrimaries(t, source)
+		f.teams = organization.TeamConfig{Version: 1, MaximumTeams: 10, MaximumMembers: 10, LifecycleVersion: 1}
+		f.dynamicRoles = customRoleConfig()
+		f.dynamicRoles.TeamBindingsVersion = 1
+		f.domains = organization.DomainConfig{Version: 1, MaximumClaims: 10}
+	}
 	f.compose(t)
 	return &ownerFixture{orgFixture: f, proofOwner: source}
 }
 
-func issueTransferProof(t *testing.T, ctx context.Context, source *passwordpg.ReauthenticationService, a organization.Authentication, user identity.UserID, revision uint64, candidate string) auth.ReauthenticationProof {
+func issueTransferProof(t *testing.T, ctx context.Context, source *passwordpg.ReauthenticationService, a organization.Authentication, user identity.UserID, revision uint64, candidate string, operation ...organization.Operation) auth.ReauthenticationProof {
 	t.Helper()
 	secret, err := primitive.NewSecret([]byte(candidate))
 	if err != nil {
@@ -223,7 +247,11 @@ func issueTransferProof(t *testing.T, ctx context.Context, source *passwordpg.Re
 	}
 	defer secret.Destroy()
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(revision), Request: authorization.Request{Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(user)}, Tenant: authorization.TenantID(a.TenantID), Action: "identity.password.verify", Resource: authorization.Resource{Type: "identity.request-admission", ID: "identity.password.verify"}}}
-	got, err := source.Verify(ctx, passwordpg.ReauthenticationRequest{TenantID: a.TenantID, Session: a.Bearer, Password: secret, Target: passwordpg.ReauthenticationTarget{Purpose: "identity.password.verify", Action: string(organization.OwnerTransfer), Audience: transferAudience}, Caller: caller, Network: "127.0.0.1", Device: "transfer-consumer"})
+	op := organization.OwnerTransfer
+	if len(operation) > 0 {
+		op = operation[0]
+	}
+	got, err := source.Verify(ctx, passwordpg.ReauthenticationRequest{TenantID: a.TenantID, Session: a.Bearer, Password: secret, Target: passwordpg.ReauthenticationTarget{Purpose: "identity.password.verify", Action: string(op), Audience: transferAudience}, Caller: caller, Network: "127.0.0.1", Device: "transfer-consumer"})
 	if err != nil || got.Outcome != identity.CommitOutcomeCommitted || got.Proof == (auth.ReauthenticationProof{}) {
 		t.Fatal("real action-bound password verification", err)
 	}

@@ -261,7 +261,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	register := func() (organization.Authentication, identity.UserID, func() organization.Authentication, func(*passwordpg.ReauthenticationService, organization.Authentication) auth.ReauthenticationProof) {
+	register := func() (organization.Authentication, identity.UserID, func() organization.Authentication, func(*passwordpg.ReauthenticationService, organization.Authentication, ...organization.Operation) auth.ReauthenticationProof) {
 		t.Helper()
 		client := server.Client()
 		client.Timeout = 6 * time.Second
@@ -362,8 +362,8 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 					t.Fatal("fresh genuine signin changed original user")
 				}
 				return next
-			}, func(source *passwordpg.ReauthenticationService, a organization.Authentication) auth.ReauthenticationProof {
-				return issueTransferProof(t, ctx, source, a, user, 9, candidate)
+			}, func(source *passwordpg.ReauthenticationService, a organization.Authentication, op ...organization.Operation) auth.ReauthenticationProof {
+				return issueTransferProof(t, ctx, source, a, user, 9, candidate, op...)
 			}
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
@@ -374,6 +374,25 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	if ownerID == memberID {
 		t.Fatal("real registrations did not create distinct users")
+	}
+	if invitationProfile == "lifecycle" {
+		recipient, recipientID, signinRecipient, _ := register()
+		policy, e := fixtureAuthorization()
+		if e != nil {
+			t.Fatal(e)
+		}
+		source, primary, _ := transferProofSource(t, ctx, pool, db, sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, profile, lookup, policy, 9, []string{baselineTenant}, keys["fingerprint"], true)
+		archive, restore := lifecyclePrimaries(t, source)
+		roles := customRoleConfig()
+		roles.TeamBindingsVersion = 1
+		fresh := func() *organizationpg.Service {
+			return consumerOrganizationServiceWithRoles(t, pool, sessions, profile, lookup, keys, material, roles, primary, archive, restore)
+		}
+		lifecycle := &lifecycleConsumer{newService: fresh, member: member, memberID: memberID, proof: func(a organization.Authentication, op organization.Operation) auth.ReauthenticationProof {
+			return ownerProof(source, a, op)
+		}}
+		exerciseGenuineInvitations(t, ctx, pool, db, fresh(), sessions, profile, lookup, owner, recipient, ownerID, recipientID, origin, keys, material, signinRecipient, signinOwner, "lifecycle", lifecycle)
+		return
 	}
 	if invitationProfile == "team-role" {
 		roles := customRoleConfig()
@@ -458,11 +477,11 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	if invitationProfile != "existing" {
-		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile, resendAdministrator)
+		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile, nil, resendAdministrator)
 		return
 	}
 	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
-	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, "existing")
+	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, "existing", nil)
 	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
 	exerciseGenuineSelfLeave(t, ctx, service, owner, member, memberID, signinRecipient)
 	exerciseGenuineOrganizationList(t, ctx, service, owner, member, memberID)
@@ -489,11 +508,17 @@ func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, ses
 	domains := organization.DomainConfig{Version: 1, MaximumClaims: 100}
 	var primary *passwordpg.ActionPrimarySource
 	var proofAudience string
+	var lifecycle organization.LifecycleConfig
+	var archive, restore *passwordpg.ActionPrimarySource
 	if len(selectedPrimary) > 0 {
 		primary = selectedPrimary[0]
 		proofAudience = transferAudience
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, OwnerTransferPrimary: primary})
+	if len(selectedPrimary) == 3 {
+		archive, restore = selectedPrimary[1], selectedPrimary[2]
+		lifecycle = organization.LifecycleConfig{Version: 1, ProofAudience: transferAudience}
+	}
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, OwnerTransferPrimary: primary, Lifecycle: lifecycle, ArchivePrimary: archive, RestorePrimary: restore})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -537,7 +562,7 @@ func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, ses
 	if e != nil {
 		t.Fatal(e)
 	}
-	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, OwnerTransferAudience: proofAudience, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
+	service, e := organizationpg.NewService(participant, organizationpg.ServiceConfig{Core: organization.Config{Clock: clock.System{}, MaximumDuration: 4 * time.Second, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, OwnerTransferAudience: proofAudience, Lifecycle: lifecycle, ValidateCanonicalID: func(ctx context.Context, id organization.ID) error {
 		_, e := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), e)
 	}}, Sessions: sessions, Authorization: authorize, Risk: counters, Coordinator: coordinator, Registry: registry})

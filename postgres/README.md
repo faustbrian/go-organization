@@ -4,6 +4,18 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Optional native archive/restore
+
+See the [lifecycle contract](../docs/lifecycle.md). Install
+`LifecycleMigrationSource` after all installed organization migrations (including
+the complete invitation-resend chain when selected), then supply identical
+`LifecycleConfig` and real matching `ArchivePrimary`/`RestorePrimary` sources.
+`GetLifecycle` provides owner-only current active/archived version discovery;
+`PrepareArchive`/`PrepareRestore` use ordinary `Execute` and original recovery.
+Current owner, session, signed action proof and actual MFA authority are fenced
+through commit. Local archive cancellation, policy state and protected effects
+are atomic; no external cascade completion or hard deletion is claimed.
+
 ## Direct custom roles
 
 Install `DynamicRoleMigrationSource` after the base organization migration, then

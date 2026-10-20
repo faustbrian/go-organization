@@ -59,22 +59,24 @@ func (fixturePolicy) Decide(ctx context.Context, c authorization.DecisionContext
 }
 
 type orgFixture struct {
-	ctx                  context.Context
-	pool                 *database.Pool
-	service              *organizationpg.Service
-	sessions             *session.SessionService
-	key                  session.DigestKey
-	authentication       map[string]organization.Authentication
-	profile              sessionpg.IdentifierAdmissionConfig
-	participant          *organizationpg.Contributor
-	configuration        organizationpg.ServiceConfig
-	dsn                  string
-	database             string
-	history              migrationList
-	teams                organization.TeamConfig
-	domains              organization.DomainConfig
-	dynamicRoles         organization.DynamicRoleConfig
-	ownerTransferPrimary *passwordpg.ActionPrimarySource
+	ctx                            context.Context
+	pool                           *database.Pool
+	service                        *organizationpg.Service
+	sessions                       *session.SessionService
+	key                            session.DigestKey
+	authentication                 map[string]organization.Authentication
+	profile                        sessionpg.IdentifierAdmissionConfig
+	participant                    *organizationpg.Contributor
+	configuration                  organizationpg.ServiceConfig
+	dsn                            string
+	database                       string
+	history                        migrationList
+	teams                          organization.TeamConfig
+	domains                        organization.DomainConfig
+	dynamicRoles                   organization.DynamicRoleConfig
+	ownerTransferPrimary           *passwordpg.ActionPrimarySource
+	lifecycle                      organization.LifecycleConfig
+	archivePrimary, restorePrimary *passwordpg.ActionPrimarySource
 }
 
 func migrationBundle(t *testing.T, version migrations.Version, name string, files fs.FS, prefix string) migrations.Migration {
@@ -245,7 +247,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, DynamicRoles: f.dynamicRoles, OwnerTransferPrimary: f.ownerTransferPrimary})
+	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, DynamicRoles: f.dynamicRoles, OwnerTransferPrimary: f.ownerTransferPrimary, Lifecycle: f.lifecycle, ArchivePrimary: f.archivePrimary, RestorePrimary: f.restorePrimary})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -279,6 +281,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	f.configuration.Core.Teams = f.teams
 	f.configuration.Core.DynamicRoles = f.dynamicRoles
 	f.configuration.Core.Domains = f.domains
+	f.configuration.Core.Lifecycle = f.lifecycle
 	if f.ownerTransferPrimary != nil {
 		f.configuration.Core.OwnerTransferAudience = transferAudience
 	}

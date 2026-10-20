@@ -38,6 +38,9 @@ type ContributorConfig struct {
 	Teams                                            organization.TeamConfig
 	Domains                                          organization.DomainConfig
 	DynamicRoles                                     organization.DynamicRoleConfig
+	Lifecycle                                        organization.LifecycleConfig
+	// Both signed primary sources are required for opt-in archive/restore.
+	ArchivePrimary, RestorePrimary *passwordpg.ActionPrimarySource
 	// OwnerTransferPrimary explicitly enables the operation-bound password
 	// profile. Omission preserves the original operation set and command bytes.
 	OwnerTransferPrimary *passwordpg.ActionPrimarySource
@@ -55,6 +58,9 @@ var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
 	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 {
+		return nil, organization.ErrInvalidInput
+	}
+	if c.Lifecycle.Validate() != nil || c.Lifecycle.Version == 0 && (c.ArchivePrimary != nil || c.RestorePrimary != nil) || c.Lifecycle.Version == 1 && (!c.ArchivePrimary.Matches(string(organization.Archive), c.Lifecycle.ProofAudience) || !c.RestorePrimary.Matches(string(organization.Restore), c.Lifecycle.ProofAudience)) {
 		return nil, organization.ErrInvalidInput
 	}
 	keys := make(map[uint32]session.DigestKey, len(c.LookupKeys))
@@ -76,6 +82,9 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 }
 func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.UpdateMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
+	if p != nil && p.config.Lifecycle.Version == 1 {
+		ops = append(ops, organization.Archive.Descriptor(), organization.Restore.Descriptor())
+	}
 	if p != nil && p.config.DynamicRoles.Version > 0 {
 		ops = append(ops, organization.CreateDynamicRole.Descriptor(), organization.UpdateDynamicRole.Descriptor(), organization.DeleteDynamicRole.Descriptor(), organization.AssignDynamicRole.Descriptor(), organization.RevokeDynamicRole.Descriptor())
 	}
@@ -118,6 +127,8 @@ type nativeCommand struct {
 	dynamicRole                             organization.DynamicRole
 	roleBinding                             organization.RoleBinding
 	teamRoleBinding                         organization.TeamRoleBinding
+	lifecycleState                          organization.LifecycleState
+	lifecycleReason                         string
 	actorFactorVersion, targetFactorVersion uint64
 }
 
@@ -138,7 +149,7 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 	if e != nil || p == nil || p.repository == nil || x.MaximumMembers != p.config.MaximumMembers || x.MaximumPerUser != p.config.MaximumPerUser || x.MaximumPerTenant != p.config.MaximumPerTenant || x.Binding.PolicyID != p.config.PolicyID || x.Binding.PolicyVersion != p.config.PolicyVersion {
 		return identity.Command{}, organization.ErrInvalidInput
 	}
-	if x.Operation == organization.OwnerTransfer {
+	if x.Operation == organization.OwnerTransfer || isLifecycleMutation(x.Operation) {
 		// Its source-owned proof framing requires authenticated primary
 		// admission; the public Service performs that bounded preparation.
 		return identity.Command{}, organization.ErrInvalidInput
@@ -204,7 +215,7 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 				return bad()
 			}
 			values[f.Name] = f.Value
-		} else if op == organization.OwnerTransfer && (f.Name == "action-primary.actor-factor-version" || f.Name == "action-primary.target-factor-version") {
+		} else if (op == organization.OwnerTransfer || isLifecycleMutation(op)) && (f.Name == "action-primary.actor-factor-version" || f.Name == "action-primary.target-factor-version") {
 			if f.Value.Kind != identity.FeatureUint64 || f.Value.Uint64 == 0 {
 				return bad()
 			}
@@ -216,7 +227,7 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 				return bad()
 			}
 			*destination = f.Value.Uint64
-		} else if op == organization.OwnerTransfer && strings.HasPrefix(f.Name, "password.action-primary.") {
+		} else if (op == organization.OwnerTransfer || isLifecycleMutation(op)) && strings.HasPrefix(f.Name, "password.action-primary.") {
 			// Only the password owner decodes/authenticates this original frame.
 			// Apply and final commit must restore it before admitting effects.
 		} else if !strings.HasPrefix(f.Name, "counter.") {
@@ -224,6 +235,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		}
 	}
 	want := 16
+	if isLifecycleMutation(op) {
+		want += 3
+	}
 	_, teamRole := values["organization.team-role-id"]
 	if teamRole {
 		// Presence is the target discriminator. A malformed explicit team target
@@ -248,11 +262,15 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	if len(values) != want {
 		return bad()
 	}
-	if op == organization.OwnerTransfer && (actorFactorVersion == 0 || targetFactorVersion == 0) {
+	if (op == organization.OwnerTransfer || isLifecycleMutation(op)) && (actorFactorVersion == 0 || targetFactorVersion == 0) {
 		return bad()
 	}
 	textNames := []string{"slug", "name", "actor-role", "member-role", "target-status", "role", "session-until"}
 	numberNames := []string{"version", "actor-version", "actor-authorization", "member-version", "member-authorization", "target-version", "maximum-members", "maximum-per-user", "maximum-per-tenant"}
+	if isLifecycleMutation(op) {
+		textNames = append(textNames, "lifecycle-state", "lifecycle-reason")
+		numberNames = append(numberNames, "lifecycle-policy-version")
+	}
 	if teamRole {
 		textNames = append(textNames, "team-role-id", "team-role-name")
 		numberNames = append(numberNames, "team-role-version")
@@ -296,7 +314,11 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 		return bad()
 	}
 	c := nativeCommand{spec: s, operation: op, org: organization.Organization{ID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, Slug: t("slug"), Name: t("name"), Version: n("version"), Active: true}, actor: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: identity.UserID(s.Binding.ActorID), Role: organization.Role(t("actor-role")), Version: n("actor-version"), AuthorizationVersion: n("actor-authorization"), Active: true}, target: organization.Member{OrganizationID: organization.ID(s.Binding.RecordID), TenantID: s.Binding.TenantID, UserID: s.Binding.UserID, Role: organization.Role(t("member-role")), Version: n("member-version"), AuthorizationVersion: n("member-authorization")}, user: identity.User{ID: s.Binding.UserID, TenantID: s.Binding.TenantID, Version: n("target-version"), Status: identity.Status(t("target-status"))}, role: organization.Role(t("role")), original: record, until: until, actorFactorVersion: actorFactorVersion, targetFactorVersion: targetFactorVersion}
-	if isDynamicRoleMutation(op) {
+	if isLifecycleMutation(op) {
+		if e = p.decodeLifecycle(&c, t, n); e != nil {
+			return bad()
+		}
+	} else if isDynamicRoleMutation(op) {
 		if e = p.decodeDynamicRole(&c, t, n); e != nil {
 			return bad()
 		}
@@ -370,6 +392,10 @@ func (p *Contributor) ValidateFeatureCommand(command identity.Command, plan kern
 
 func events(op organization.Operation) (string, string) {
 	switch op {
+	case organization.Archive:
+		return "organization.archived.v1", string(op)
+	case organization.Restore:
+		return "organization.restored.v1", string(op)
 	case organization.CreateDynamicRole:
 		return "organization.role_created.v1", string(op)
 	case organization.UpdateDynamicRole:
@@ -507,7 +533,7 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 	if !now.Before(c.until) || c.until.After(now.Add(20*time.Second)) {
 		return identity.ForbiddenError{}
 	}
-	if c.operation == organization.OwnerTransfer {
+	if c.operation == organization.OwnerTransfer || isLifecycleMutation(c.operation) {
 		life, err := c.original.Lifetime(now)
 		if err != nil || !life.Fresh {
 			return identity.ForbiddenError{}
@@ -538,6 +564,18 @@ func (p *Contributor) CheckFeatureCommit(ctx context.Context, w kernel.Work, com
 	}
 	if c.operation == organization.OwnerTransfer {
 		primary, err := p.restoreTransfer(ctx, c, command)
+		if err != nil {
+			return err
+		}
+		if err = primary.Check(ctx, w, p, command); err != nil {
+			return err
+		}
+	}
+	if isLifecycleMutation(c.operation) {
+		if err := p.checkLifecycleCommit(ctx, w, c); err != nil {
+			return err
+		}
+		primary, err := p.restoreLifecycle(ctx, c, command)
 		if err != nil {
 			return err
 		}

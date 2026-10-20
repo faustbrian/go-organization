@@ -50,10 +50,16 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 			return identity.FeatureReceipt{}, e
 		}
 	}
+	if isLifecycleMutation(c.operation) {
+		primary, e = p.restoreLifecycle(ctx, c, command)
+		if e != nil {
+			return identity.FeatureReceipt{}, e
+		}
+	}
 	if e = p.admit(ctx, w, c, command, false); e != nil {
 		return identity.FeatureReceipt{}, e
 	}
-	if c.operation == organization.OwnerTransfer {
+	if c.operation == organization.OwnerTransfer || isLifecycleMutation(c.operation) {
 		if e = primary.Consume(ctx, w, p, command); e != nil {
 			return identity.FeatureReceipt{}, e
 		}
@@ -77,6 +83,8 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 		e = p.update(ctx, w, c)
 	} else if c.operation == organization.OwnerTransfer {
 		e = p.transferOwner(ctx, w, c)
+	} else if isLifecycleMutation(c.operation) {
+		e = p.mutateLifecycle(ctx, w, c)
 	} else if isDynamicRoleMutation(c.operation) {
 		e = p.mutateDynamicRole(ctx, w, c)
 	} else if isTeamMutation(c.operation) {

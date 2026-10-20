@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add native archive/restore through the existing coordinator with atomic
+  organization state/policy epochs, real signed-proof consumption and protected
+  effects. Apply `LifecycleMigrationSource` after installed organization and
+  complete invitation migrations; select matching lifecycle config and distinct
+  archive/restore password primary sources. Naturally expired pending invites
+  cancel at actual database time; restoration never rewrites terminal children.
+
 - Add opt-in team-role bindings through the existing role actions/coordinator.
   Install `TeamRoleBindingMigrationSource` after dynamic roles and terminal team
   lifecycle before selecting `DynamicRoles.TeamBindingsVersion: 1` on both

@@ -53,6 +53,11 @@ func (r *Repository) Read(ctx context.Context, q organization.Query) (organizati
 	if ctx == nil || r == nil || r.pool == nil || !scope(string(q.TenantID)) || !scope(string(q.ActorID)) || !scope(string(q.OrganizationID)) {
 		return organization.View{}, organization.ErrInvalidInput
 	}
+	if q.Lifecycle {
+		bounded, cancel := context.WithTimeout(ctx, r.maximum)
+		defer cancel()
+		return r.readLifecycle(bounded, q)
+	}
 	if q.Operation != organization.Get && q.Operation != organization.ListMembers && q.Operation != organization.Update && q.Operation != organization.AddMember && q.Operation != organization.UpdateMember && q.Operation != organization.RemoveMember && q.Operation != organization.LeaveMember && q.Operation != organization.OwnerTransfer {
 		if !isTeamOperation(q.Operation) && !isDomainOperation(q.Operation) && !isDynamicRoleOperation(q.Operation) {
 			return organization.View{}, organization.ErrInvalidInput

@@ -52,6 +52,9 @@ func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
 	if (c.Core.OwnerTransferAudience == "") != (p.config.OwnerTransferPrimary == nil) {
 		return nil, organization.ErrInvalidInput
 	}
+	if c.Core.Lifecycle != p.config.Lifecycle {
+		return nil, organization.ErrInvalidInput
+	}
 	if p.config.OwnerTransferPrimary != nil && !p.config.OwnerTransferPrimary.Matches(string(organization.OwnerTransfer), c.Core.OwnerTransferAudience) {
 		return nil, organization.ErrInvalidInput
 	}
@@ -298,6 +301,9 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	}
 	b := r.Binding
 	op := organization.Operation(b.OperationID)
+	if isLifecycleMutation(op) && s.config.Core.Lifecycle.Version != 1 {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
 	if isDynamicRoleMutation(op) && s.config.Core.DynamicRoles.Version == 0 {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
@@ -344,12 +350,18 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 	}
 	var admission organization.View
 	if op != organization.Create {
-		view, readErr := s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
+		var view organization.View
+		var readErr error
+		if isLifecycleMutation(op) {
+			view, readErr = s.core.GetLifecycle(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
+		} else {
+			view, readErr = s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
+		}
 		if readErr != nil {
 			return organization.StoreResult{}, readErr
 		}
 		admission = view
-		if op == organization.Update || op == organization.UpdateMember || op == organization.OwnerTransfer || isTeamMutation(op) || isDomainMutation(op) || isDynamicRoleMutation(op) {
+		if op == organization.Update || op == organization.UpdateMember || op == organization.OwnerTransfer || isTeamMutation(op) || isDomainMutation(op) || isDynamicRoleMutation(op) || isLifecycleMutation(op) {
 			if e = s.authorizeUpdateRecovery(bounded, b, view); e != nil {
 				return organization.StoreResult{}, e
 			}
@@ -373,6 +385,9 @@ func (s *Service) authorizeUpdateRecovery(ctx context.Context, b identity.Comman
 		}
 	}()
 	selfRoleHistory := organization.Operation(b.OperationID) == organization.UpdateMember && b.UserID == identity.UserID(b.ActorID)
+	if isLifecycleMutation(organization.Operation(b.OperationID)) && view.Actor.Role != organization.RoleOwner {
+		return organization.ErrForbidden
+	}
 	if organization.Operation(b.OperationID) != organization.OwnerTransfer && !selfRoleHistory && view.Actor.Role != organization.RoleOwner && view.Actor.Role != organization.RoleAdministrator {
 		return organization.ErrForbidden
 	}
@@ -425,7 +440,7 @@ func (s *Service) revalidateRecovery(ctx context.Context, r *recoveryInput) erro
 		return organization.ErrForbidden
 	}
 	if r.organization.Version != 0 {
-		view, err := s.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: b.TenantID, ActorID: identity.UserID(b.ActorID), OrganizationID: organization.ID(b.RecordID)})
+		view, err := s.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: b.TenantID, ActorID: identity.UserID(b.ActorID), OrganizationID: organization.ID(b.RecordID), Lifecycle: isLifecycleMutation(organization.Operation(b.OperationID))})
 		if err != nil {
 			return err
 		}
@@ -473,7 +488,7 @@ func (u *unitOfWork) Execute(ctx context.Context, c organization.Command) (organ
 	s, p := u.service, u.prepared
 	reservation, receipt, e := s.config.Coordinator.ReserveCommand(ctx, p.binding, p.native, p.plan)
 	if e != nil || reservation == (kernel.Reservation{}) {
-		if (p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID)) || isDynamicRoleMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
+		if (p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID)) || isDynamicRoleMutation(organization.Operation(p.binding.OperationID)) || isLifecycleMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
 			// Terminal replay skips Apply's protected admission. Use current
 			// session/membership/action/query authority for historical disclosure,
 			// including self-demotion, domain custody and custom roles, never the old manager
