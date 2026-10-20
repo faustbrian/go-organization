@@ -13,6 +13,12 @@ while protecting the last owner.
 
 ## API and selection
 
+`LifecycleConfig` selects [native owner archive/restore](docs/lifecycle.md).
+Current owners supply a fresh action-bound password proof and exact discovered
+organization version. Archive denies native child authority and cancels pending
+invitations atomically; restore never revives terminal child state. Hard deletion
+and complete asynchronous external cascades remain unselected.
+
 `DynamicRoleConfig` selects [bounded custom roles](docs/dynamic-roles.md).
 Current owners/administrators create/read/list/update/delete roles and assign or
 revoke them for current members. `CheckPermission` evaluates exact registered
@@ -130,7 +136,7 @@ The root boundary does not own:
 - database clients, migrations, transactions, caches, or background workers.
 
 Domain challenges and ownership proofs,
-archive/delete commands, active selection, cache invalidation, SSO/SCIM and
+hard-delete commands, active selection, cache invalidation, SSO/SCIM and
 HTTP/browser transport are unselected. Reserved database states are not public
 operations. Their presence in planning material does not make them available.
 

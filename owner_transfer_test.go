@@ -12,7 +12,7 @@ import (
 	organization "github.com/faustbrian/go-organization"
 )
 
-func transferFixture(t *testing.T) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
+func transferFixture(t *testing.T, selectedLifecycle ...organization.LifecycleConfig) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
 	t.Helper()
 	base, a, at, owner, policy := policyFixture(t)
 	c, err := base.PrepareUpdate(t.Context(), updateRequest(t, a))
@@ -36,7 +36,11 @@ func transferFixture(t *testing.T) (*organization.Service, organization.Authenti
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := organization.NewService(sessions, owner, policy, organization.Config{Clock: at, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, OwnerTransferAudience: "organization-action", ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
+	var lifecycle organization.LifecycleConfig
+	if len(selectedLifecycle) > 0 {
+		lifecycle = selectedLifecycle[0]
+	}
+	s, err := organization.NewService(sessions, owner, policy, organization.Config{Clock: at, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, OwnerTransferAudience: "organization-action", Lifecycle: lifecycle, ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

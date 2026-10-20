@@ -22,6 +22,12 @@ with deny precedence across both paths. Removed or terminally deleted teams and
 stale organization admissions grant nothing; team roles confer no management
 authority. Activation requires the forward migration and terminal team lifecycle.
 
+The explicit [native lifecycle profile](lifecycle.md) adds owner-only archive
+and restore with genuine fresh action-bound password proof and current native
+factor authority. Archive atomically denies the parent and cancels pending
+invitations; restore preserves terminal children. It does not attest arbitrary
+external integration state, asynchronous cascade completion or hard deletion.
+
 ## Selected profile
 
 Public calls use the real native stateful opaque SessionService and external
@@ -98,7 +104,7 @@ not infer those capabilities from ambient process state.
 - **Disposition:** release blocker; not accepted for production.
 - **Owner:** go-organization maintainers.
 - **Rationale:** full invitation/team-role qualification, domain proofs,
-  archive/delete commands, active selection, cache
+  full composed lifecycle/hard deletion, active selection, cache
   closure, SSO/SCIM, MFA/passkeys and HTTP/browser transport are unselected.
 - **Mitigation:** keep the modules experimental; do not infer those controls
   from reserved database states or the historical goal.

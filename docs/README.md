@@ -8,6 +8,8 @@ proof of full-unit completion.
 
 ## Complete documentation map
 
+- [Selected native archive/restore](lifecycle.md) — `docs/lifecycle.md`
+
 - [Selected direct and opt-in team custom roles](dynamic-roles.md) — `docs/dynamic-roles.md`
 
 - [Goal: planned go-organization boundary](goal.md) — `docs/goal.md`

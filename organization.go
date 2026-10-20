@@ -57,6 +57,9 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
+	if lifecycleMutation(o) {
+		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-lifecycle", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
+	}
 	if dynamicRoleMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-dynamic-role", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
@@ -140,6 +143,9 @@ type Query struct {
 	DynamicRoleID    ID
 	RoleCursor       string
 	IncludeTeamRoles bool
+	// Lifecycle permits owner-only archived discovery for Get/Archive/Restore.
+	// It must never broaden an ordinary member/team/permission query.
+	Lifecycle bool
 }
 
 // View is an independently owned primary snapshot. OwnerCount includes active
@@ -162,6 +168,8 @@ type View struct {
 	RoleBinding     RoleBinding
 	TeamRoleBinding TeamRoleBinding
 	NextRoleCursor  string
+	LifecycleState  LifecycleState
+	LifecycleReason string
 }
 
 // Repository reads only authoritative owned organization state and delegates
@@ -207,6 +215,7 @@ type Config struct {
 	Teams                                            TeamConfig
 	Domains                                          DomainConfig
 	DynamicRoles                                     DynamicRoleConfig
+	Lifecycle                                        LifecycleConfig
 	// OwnerTransferAudience explicitly selects the signed primary-proof audience.
 	// Empty disables ownership transfer; it is independent of session audience.
 	OwnerTransferAudience string
@@ -223,7 +232,7 @@ type Service struct {
 }
 
 func NewService(sessions *session.SessionService, repository Repository, policy authorization.Service, c Config) (*Service, error) {
-	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
+	if sessions == nil || nilValue(repository) || nilValue(policy) || nilValue(c.Clock) || c.MaximumDuration <= 0 || c.MaximumDuration > 5*time.Second || !safeID(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || c.ValidateCanonicalID == nil || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 || c.Lifecycle.Validate() != nil || c.OwnerTransferAudience != "" && !validOwnerTransferAudience(c.OwnerTransferAudience) {
 		return nil, ErrInvalidInput
 	}
 	c.PolicyID = strings.Clone(c.PolicyID)
@@ -322,6 +331,10 @@ type CommandInput struct {
 	TeamRoleBinding                                  TeamRoleBinding
 	DynamicRoles                                     DynamicRoleConfig
 	OwnerTransferProof                               authentication.ReauthenticationProof
+	Lifecycle                                        LifecycleConfig
+	LifecycleState                                   LifecycleState
+	LifecycleReason                                  string
+	LifecycleProof                                   authentication.ReauthenticationProof
 }
 
 type commandState struct {
@@ -574,6 +587,9 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, s.config.Clock.Now()) {
 		return out, ErrForbidden
 	}
+	if lifecycleMutation(x.Operation) && !s.validLifecycleProof(x.Session, x.LifecycleProof, x.Operation, s.config.Clock.Now()) {
+		return out, ErrForbidden
+	}
 	if err := s.authorize(bounded, identity.UserID(x.Binding.ActorID), x.Binding.TenantID, x.Organization.ID, x.Organization.Version, x.Operation, x.Binding.CorrelationID); err != nil {
 		return out, err
 	}
@@ -587,6 +603,9 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 		return out, ErrForbidden
 	}
 	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, now) {
+		return out, ErrForbidden
+	}
+	if lifecycleMutation(x.Operation) && !s.validLifecycleProof(x.Session, x.LifecycleProof, x.Operation, now) {
 		return out, ErrForbidden
 	}
 	attempted = true

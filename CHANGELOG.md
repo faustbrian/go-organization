@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add opt-in owner-only native archive/restore with fresh action-bound password
+  proof, exact organization versions and current-authorized original recovery.
+  Archive denies native child authority and atomically cancels pending invites;
+  restore preserves all terminal child states. Hard deletion and external
+  integration cascades remain separate unsupported profiles.
+
 - Add opt-in team custom-role assignments and current direct-plus-team permission
   evaluation with shared deny precedence. Exact team binding discovery supports
   fresh clients; deleted teams and stale organization admissions grant nothing.
