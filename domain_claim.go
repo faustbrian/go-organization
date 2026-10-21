@@ -3,6 +3,7 @@ package organization
 import (
 	"context"
 	"strings"
+	"time"
 
 	identity "github.com/faustbrian/go-identity"
 )
@@ -13,17 +14,28 @@ const (
 	GetDomainClaim Operation = "identity.organization.domain.get"
 )
 
-// DomainConfig explicitly selects reservation custody, never ownership proof or
-// SSO routing. Zero disables it. Version binds the immutable deployed policy;
+// DomainConfig explicitly selects reservation custody and, independently, an
+// optional bounded evidence lifetime. Zero disables it. Version binds immutable
+// deployed policy;
 // MaximumClaims bounds all retained claims (including withdrawn tombstones) per
 // organization to 1..10,000. There is no expiry or automatic takeover.
-type DomainConfig struct{ Version, MaximumClaims uint64 }
+type DomainConfig struct {
+	Version, MaximumClaims uint64
+	// EvidenceMaximumAge explicitly enables proof issuance and bounds original
+	// observation lifetime. identity-platform/REFERENCE_CONFIGURATION.md's
+	// sso.domain_proof.ttl allows 15m..48h;
+	// zero preserves reservation-only behavior. Observers may return less time.
+	EvidenceMaximumAge time.Duration
+}
 
 func (c DomainConfig) Validate() error {
 	if c == (DomainConfig{}) {
 		return nil
 	}
 	if c.Version == 0 || c.MaximumClaims < 1 || c.MaximumClaims > 10000 {
+		return ErrInvalidInput
+	}
+	if c.EvidenceMaximumAge != 0 && (c.EvidenceMaximumAge < 15*time.Minute || c.EvidenceMaximumAge > 48*time.Hour) {
 		return ErrInvalidInput
 	}
 	return nil
@@ -109,7 +121,9 @@ type DomainClaimReadRequest struct {
 	CorrelationID           string
 }
 
-func domainMutation(op Operation) bool { return op == ReserveDomain || op == WithdrawDomain }
+func domainMutation(op Operation) bool {
+	return op == ReserveDomain || op == WithdrawDomain || evidenceMutation(op)
+}
 
 func (s *Service) PrepareReserveDomain(ctx context.Context, r DomainClaimRequest) (Command, error) {
 	return s.prepareDomain(ctx, r, ReserveDomain)
@@ -124,7 +138,7 @@ func (s *Service) prepareDomain(ctx context.Context, r DomainClaimRequest, op Op
 			out, err = Command{}, ErrUnavailable
 		}
 	}()
-	if s == nil || ctx == nil || s.config.Domains.MaximumClaims == 0 || !safeID(string(r.OrganizationID)) || !safeID(string(r.ClaimID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || op == ReserveDomain && r.ClaimVersion != 0 || op == WithdrawDomain && (r.ClaimVersion == 0 || r.ClaimVersion == ^uint64(0)) {
+	if s == nil || ctx == nil || s.config.Domains.MaximumClaims == 0 || !safeID(string(r.OrganizationID)) || !safeID(string(r.ClaimID)) || !safeID(r.CorrelationID) || r.OrganizationVersion == 0 || r.OrganizationVersion == ^uint64(0) || op == ReserveDomain && r.ClaimVersion != 0 || op != ReserveDomain && (r.ClaimVersion == 0 || r.ClaimVersion == ^uint64(0)) {
 		return out, ErrInvalidInput
 	}
 	if _, e := identity.ParseCommandID(string(r.CommandID)); e != nil {

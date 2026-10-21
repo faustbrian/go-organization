@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add opt-in organization-owned domain evidence with an explicitly trusted
+  bounded observer, exact scope/version/time binding and authoritative current
+  reads. Original-command recovery preserves historical proof without renewing
+  expiry or repeating observation; revocation and archive retirement are terminal.
+  Reservations alone still confer no domain ownership or SSO routing authority.
+
 - Add opt-in owner-only native archive/restore with fresh action-bound password
   proof, exact organization versions and current-authorized original recovery.
   Archive denies native child authority and atomically cancels pending invites;

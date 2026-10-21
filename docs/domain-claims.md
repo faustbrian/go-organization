@@ -1,5 +1,9 @@
 # Authenticated domain reservation custody
 
+The additive [domain-evidence profile](domain-evidence.md) independently enables
+organization-owned observed proof; this document describes reservation-only
+configuration, whose behavior remains unchanged.
+
 This opt-in profile reserves a canonical ASCII name for one exact active
 tenant/organization. **A reservation is never proof of domain ownership.**
 It cannot route SSO, verify an enterprise provider, or create a usable

@@ -57,6 +57,9 @@ const (
 // Descriptor identifies the one versioned storage-neutral mutation schema.
 // Unknown and read operations return zero, which identity rejects.
 func (o Operation) Descriptor() identity.FeatureOperation {
+	if evidenceMutation(o) {
+		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-domain-evidence", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
+	}
 	if lifecycleMutation(o) {
 		return identity.FeatureOperation{Owner: "organization", OperationID: string(o), SchemaID: "organization-lifecycle", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired}
 	}
@@ -325,6 +328,7 @@ type CommandInput struct {
 	TeamMember                                       TeamMember
 	Teams                                            TeamConfig
 	DomainClaim                                      DomainClaim
+	DomainProof                                      DomainProof
 	Domains                                          DomainConfig
 	DynamicRole                                      DynamicRole
 	RoleBinding                                      RoleBinding
@@ -575,7 +579,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 		return out, ErrInvalidInput
 	}
 	now := s.config.Clock.Now()
-	if c.state.input.Session.ValidateAt(now) != nil || (c.state.input.Operation == InvitationAccept || c.state.input.Operation == InvitationCancel || c.state.input.Operation == InvitationReject || c.state.input.Operation == InvitationResend) && !now.Before(c.state.input.Invitation.Record.ExpiresAt) {
+	if c.state.input.Session.ValidateAt(now) != nil || evidenceMutation(c.state.input.Operation) && !now.Before(c.state.input.DomainProof.ExpiresAt) || (c.state.input.Operation == InvitationAccept || c.state.input.Operation == InvitationCancel || c.state.input.Operation == InvitationReject || c.state.input.Operation == InvitationResend) && !now.Before(c.state.input.Invitation.Record.ExpiresAt) {
 		return out, ErrForbidden
 	}
 	bounded, cancel := context.WithTimeout(ctx, s.config.MaximumDuration)
@@ -599,7 +603,7 @@ func (s *Service) Execute(ctx context.Context, c Command, work UnitOfWork) (out 
 	if err := bounded.Err(); err != nil {
 		return out, err
 	}
-	if x.Session.ValidateAt(now) != nil || (x.Operation == InvitationAccept || x.Operation == InvitationCancel || x.Operation == InvitationReject || x.Operation == InvitationResend) && !now.Before(x.Invitation.Record.ExpiresAt) {
+	if x.Session.ValidateAt(now) != nil || evidenceMutation(x.Operation) && !now.Before(x.DomainProof.ExpiresAt) || (x.Operation == InvitationAccept || x.Operation == InvitationCancel || x.Operation == InvitationReject || x.Operation == InvitationResend) && !now.Before(x.Invitation.Record.ExpiresAt) {
 		return out, ErrForbidden
 	}
 	if x.Operation == OwnerTransfer && !s.validOwnerTransferProof(x.Session, x.OwnerTransferProof, now) {
