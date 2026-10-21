@@ -107,6 +107,8 @@ github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789 h
 github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789/go.mod h1:O/hmm6Lqqb8SknW6SGEhv+EornZU+sR8KVKCXK5h+uY=
 github.com/faustbrian/go-identity/risk v0.0.0-20261020163503-ea96b3da9b18 h1:UAP+O+8yCkjpuAMIX2KS/sDJkxQLFIahv9oJFoa5UuQ=
 github.com/faustbrian/go-identity/risk v0.0.0-20261020163503-ea96b3da9b18/go.mod h1:zgNZ4X6AUlAWF12+6VIXijPginf0xGML8wBYVkv+FvY=
+github.com/faustbrian/go-identity/risk v0.0.0-20261021003004-0e56be2725e5 h1:HMXn/L3xJM0tjO+5uE4xlcRhv/uglJ6fGCsh5Hj6LxE=
+github.com/faustbrian/go-identity/risk v0.0.0-20261021003004-0e56be2725e5/go.mod h1:zgNZ4X6AUlAWF12+6VIXijPginf0xGML8wBYVkv+FvY=
 github.com/faustbrian/go-identity/risk/hibp v0.0.0-20261018021354-75e10d9681e0 h1:CdkeHkuX+7SrhNC6rLBHMXc3vJ2dH9epaU+1L1f8p5o=
 github.com/faustbrian/go-identity/risk/hibp v0.0.0-20261018021354-75e10d9681e0/go.mod h1:hmFfP+7i0J5142s8cSWtkOG2tyv0jc6rnBMwX93UaAc=
 github.com/faustbrian/go-identity/risk/postgres v0.0.0-20261018214852-8c1464f073aa h1:G7BNvkq1rLivKFj3lgg5Umy6VKsVmOrvvGic1U62/dw=
@@ -131,6 +133,8 @@ github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820 h1:/5nv
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820/go.mod h1:BpEy2DPz/YR5C9gcBcKAxkG4fO+jo6WLwjNDy075MYY=
 github.com/faustbrian/go-organization v0.0.0-20261020192114-d3aab924bc33 h1:clvjEZMhEouZxG3qyD+EXxyc/DEiJgHVMploljs3UgY=
 github.com/faustbrian/go-organization v0.0.0-20261020192114-d3aab924bc33/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
+github.com/faustbrian/go-organization v0.0.0-20261021010109-f7d9a1af78fe h1:6snIR6iB1IFAvBUNUYl8fQQsCqO8CTFyl1xHi+6y4lo=
+github.com/faustbrian/go-organization v0.0.0-20261021010109-f7d9a1af78fe/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff h1:8BIB469appqyn79T6j/sJQAS3dN6+budadfpPLwtqIg=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff/go.mod h1:Tqc83xc8RVAsi6JAW3dkKM1OFVos7cfayeNHBbWstsA=
 github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7 h1:yYXsPBwz+mm8JMdWfl+DcTdeD52C/zlBW2H4Tb40gKk=

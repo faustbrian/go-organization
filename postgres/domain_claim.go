@@ -12,7 +12,7 @@ import (
 )
 
 func isDomainMutation(op organization.Operation) bool {
-	return op == organization.ReserveDomain || op == organization.WithdrawDomain
+	return op == organization.ReserveDomain || op == organization.WithdrawDomain || isEvidenceMutation(op)
 }
 func isDomainOperation(op organization.Operation) bool {
 	return isDomainMutation(op) || op == organization.GetDomainClaim
@@ -90,6 +90,9 @@ func (p *Contributor) mutateDomain(ctx context.Context, w kernel.Work, c nativeC
 	if e := p.requireDomainOrganization(ctx, w, c, c.org.Version); e != nil {
 		return e
 	}
+	if isEvidenceMutation(c.operation) {
+		return p.mutateDomainEvidence(ctx, w, c)
+	}
 	b, claim := c.spec.Binding, c.domainClaim
 	var n int64
 	var e error
@@ -152,6 +155,9 @@ func (p *Contributor) requireDomainOrganization(ctx context.Context, w kernel.Wo
 func (p *Contributor) checkDomainCommit(ctx context.Context, w kernel.Work, c nativeCommand) error {
 	if e := p.requireDomainOrganization(ctx, w, c, c.org.Version+1); e != nil {
 		return e
+	}
+	if isEvidenceMutation(c.operation) {
+		return p.checkDomainEvidenceCommit(ctx, w, c)
 	}
 	state, version := string(organization.DomainRequested), uint64(1)
 	if c.operation == organization.WithdrawDomain {

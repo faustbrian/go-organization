@@ -37,6 +37,7 @@ type ContributorConfig struct {
 	MaximumMembers, MaximumPerUser, MaximumPerTenant uint64
 	Teams                                            organization.TeamConfig
 	Domains                                          organization.DomainConfig
+	DomainEvidence                                   *DomainEvidenceSource
 	DynamicRoles                                     organization.DynamicRoleConfig
 	Lifecycle                                        organization.LifecycleConfig
 	// Both signed primary sources are required for opt-in archive/restore.
@@ -57,6 +58,9 @@ type Contributor struct {
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
 
 func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, error) {
+	if c.DomainEvidence != nil && (c.DomainEvidence.observer == nil || c.DomainEvidence.key == ([32]byte{}) || c.Domains.EvidenceMaximumAge == 0) {
+		return nil, organization.ErrInvalidInput
+	}
 	if repository == nil || c.Session.MaximumDuration <= 0 || c.Session.MaximumDuration > 5*time.Second || c.Profile.Validate() != nil || c.Profile.AuthenticationMethod != "password" || c.Profile.CredentialKind != identity.CredentialPassword || c.Profile.CredentialOwner != "identity/password" || !scope(c.PolicyID) || c.PolicyVersion == 0 || c.MaximumMembers < 1 || c.MaximumMembers > 100000 || c.MaximumPerUser < 1 || c.MaximumPerUser > 1000 || c.MaximumPerTenant < 1 || c.MaximumPerTenant > 1000000 || len(c.LookupKeys) < 1 || len(c.LookupKeys) > 4 || c.Teams.Validate() != nil || c.Domains.Validate() != nil || c.DynamicRoles.Validate() != nil || c.DynamicRoles.TeamBindingsVersion != 0 && c.Teams.LifecycleVersion != 1 {
 		return nil, organization.ErrInvalidInput
 	}
@@ -93,6 +97,9 @@ func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	}
 	if p != nil && p.config.Domains.MaximumClaims > 0 {
 		ops = append(ops, organization.ReserveDomain.Descriptor(), organization.WithdrawDomain.Descriptor())
+		if p.config.DomainEvidence != nil && p.config.Domains.EvidenceMaximumAge > 0 {
+			ops = append(ops, organization.ApplyDomainProof.Descriptor(), organization.RevokeDomainProof.Descriptor())
+		}
 	}
 	if p != nil && p.config.Teams.MaximumTeams > 0 {
 		ops = append(ops, organization.CreateTeam.Descriptor(), organization.AddTeamMember.Descriptor(), organization.RemoveTeamMember.Descriptor())
@@ -124,6 +131,7 @@ type nativeCommand struct {
 	team                                    organization.Team
 	teamMember                              organization.TeamMember
 	domainClaim                             organization.DomainClaim
+	domainProof                             organization.DomainProof
 	dynamicRole                             organization.DynamicRole
 	roleBinding                             organization.RoleBinding
 	teamRoleBinding                         organization.TeamRoleBinding
@@ -145,6 +153,13 @@ func number(name string, value uint64) identity.FeatureField {
 // OwnerTransfer requires Service.PrepareOwnerTransfer's authenticated password
 // admission and is rejected here rather than mapped without its proof owner.
 func (p *Contributor) MapCommand(c organization.Command) (identity.Command, error) {
+	if x, e := c.Input(); e == nil && isEvidenceMutation(x.Operation) {
+		return identity.Command{}, organization.ErrInvalidInput
+	}
+	return p.mapCommand(c)
+}
+
+func (p *Contributor) mapCommand(c organization.Command) (identity.Command, error) {
 	x, e := c.Input()
 	if e != nil || p == nil || p.repository == nil || x.MaximumMembers != p.config.MaximumMembers || x.MaximumPerUser != p.config.MaximumPerUser || x.MaximumPerTenant != p.config.MaximumPerTenant || x.Binding.PolicyID != p.config.PolicyID || x.Binding.PolicyVersion != p.config.PolicyVersion {
 		return identity.Command{}, organization.ErrInvalidInput
@@ -171,6 +186,13 @@ func (p *Contributor) MapCommand(c organization.Command) (identity.Command, erro
 			return identity.Command{}, organization.ErrInvalidInput
 		}
 		f = append(f, text("claim-id", string(x.DomainClaim.ID)), text("domain", x.DomainClaim.Domain), text("claim-state", string(x.DomainClaim.State)), number("claim-version", x.DomainClaim.Version), number("domain-policy-version", x.Domains.Version), number("maximum-domain-claims", x.Domains.MaximumClaims))
+		if isEvidenceMutation(x.Operation) {
+			if p.config.DomainEvidence == nil || p.config.Domains.EvidenceMaximumAge == 0 {
+				return identity.Command{}, organization.ErrInvalidInput
+			}
+			proof := x.DomainProof
+			f = append(f, text("proof-method", string(proof.Method)), text("proof-observed", proof.ObservedAt.Format(time.RFC3339Nano)), text("proof-expires", proof.ExpiresAt.Format(time.RFC3339Nano)), number("proof-version", proof.ProofVersion), text("proof-seal", p.config.DomainEvidence.seal(x.Binding, proof)))
+		}
 	}
 	if isTeamMutation(x.Operation) {
 		if p.config.Teams.MaximumTeams == 0 || x.Teams != p.config.Teams {
@@ -252,6 +274,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	}
 	if isDomainMutation(op) {
 		want += 6
+		if isEvidenceMutation(op) {
+			want += 5
+		}
 	}
 	if isTeamMutation(op) {
 		want += 8
@@ -282,6 +307,10 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	if isDomainMutation(op) {
 		textNames = append(textNames, "claim-id", "domain", "claim-state")
 		numberNames = append(numberNames, "claim-version", "domain-policy-version", "maximum-domain-claims")
+		if isEvidenceMutation(op) {
+			textNames = append(textNames, "proof-method", "proof-observed", "proof-expires", "proof-seal")
+			numberNames = append(numberNames, "proof-version")
+		}
 	}
 	if isTeamMutation(op) {
 		textNames = append(textNames, "team-id", "team-name")
@@ -328,6 +357,11 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 			return bad()
 		}
 		c.domainClaim = organization.DomainClaim{ID: organization.ID(t("claim-id")), OrganizationID: c.org.ID, TenantID: s.Binding.TenantID, Domain: domain, State: organization.DomainRequested, Version: n("claim-version")}
+		if isEvidenceMutation(op) {
+			if err := p.decodeDomainEvidence(&c, t, n); err != nil {
+				return bad()
+			}
+		}
 	} else if isTeamMutation(op) {
 		if p.config.Teams.MaximumTeams == 0 || n("team-policy-version") != p.config.Teams.Version || n("maximum-teams") != p.config.Teams.MaximumTeams || n("maximum-team-members") != p.config.Teams.MaximumMembers || !scope(t("team-id")) || !boundedTeamName(t("team-name")) || c.org.Version == 0 || c.org.Version == ^uint64(0) || c.actor.Version == 0 || c.actor.AuthorizationVersion == 0 || c.actor.Role != organization.RoleOwner && c.actor.Role != organization.RoleAdministrator || c.role != "" {
 			return bad()
@@ -408,6 +442,10 @@ func events(op organization.Operation) (string, string) {
 		return "organization.role_revoked.v1", string(op)
 	case organization.ReserveDomain:
 		return "organization.domain_reserved.v1", string(organization.ReserveDomain)
+	case organization.ApplyDomainProof:
+		return "domain_claim.verified.v1", "identity.organization.verify_domain"
+	case organization.RevokeDomainProof:
+		return "domain_claim.revoked.v1", "identity.organization.revoke_domain"
 	case organization.WithdrawDomain:
 		return "organization.domain_withdrawn.v1", string(organization.WithdrawDomain)
 	case organization.Create:
@@ -531,6 +569,9 @@ func (p *Contributor) admit(ctx context.Context, w kernel.Work, c nativeCommand,
 		return e
 	}
 	if !now.Before(c.until) || c.until.After(now.Add(20*time.Second)) {
+		return identity.ForbiddenError{}
+	}
+	if isEvidenceMutation(c.operation) && (!now.Before(c.domainProof.ExpiresAt) || c.domainProof.ObservedAt.After(now)) {
 		return identity.ForbiddenError{}
 	}
 	if c.operation == organization.OwnerTransfer || isLifecycleMutation(c.operation) {

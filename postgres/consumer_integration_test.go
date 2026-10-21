@@ -403,6 +403,16 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		exerciseGenuineTeamDynamicRoles(t, ctx, db, fresh(), owner, member, signinOwner(), memberID, fresh)
 		return
 	}
+	if invitationProfile == "domain-evidence" {
+		observer := new(nativeDomainObserver)
+		source, err := organizationpg.NewDomainEvidenceSource(observer, keys["fingerprint"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		service := consumerOrganizationServiceProfile(t, pool, sessions, profile, lookup, keys, material, customRoleConfig(), source)
+		exerciseGenuineDomainEvidence(t, ctx, db, service, owner, member, signinOwner(), memberID, observer)
+		return
+	}
 	service := consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
 	if invitationProfile == "dynamic-role" {
 		exerciseGenuineDynamicRoles(t, ctx, db, service, owner, member, signinOwner(), memberID, func() *organizationpg.Service {
@@ -499,6 +509,10 @@ func consumerOrganizationService(t *testing.T, pool *database.Pool, sessions *se
 }
 
 func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte, roles organization.DynamicRoleConfig, selectedPrimary ...*passwordpg.ActionPrimarySource) *organizationpg.Service {
+	return consumerOrganizationServiceProfile(t, pool, sessions, profile, lookup, keys, material, roles, nil, selectedPrimary...)
+}
+
+func consumerOrganizationServiceProfile(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte, roles organization.DynamicRoleConfig, domainSource *organizationpg.DomainEvidenceSource, selectedPrimary ...*passwordpg.ActionPrimarySource) *organizationpg.Service {
 	t.Helper()
 	repository, e := organizationpg.NewRepository(pool, organizationpg.Config{MaximumDuration: 2 * time.Second})
 	if e != nil {
@@ -506,6 +520,9 @@ func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, ses
 	}
 	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100, LifecycleVersion: 1}
 	domains := organization.DomainConfig{Version: 1, MaximumClaims: 100}
+	if domainSource != nil {
+		domains.EvidenceMaximumAge = time.Hour
+	}
 	var primary *passwordpg.ActionPrimarySource
 	var proofAudience string
 	var lifecycle organization.LifecycleConfig
@@ -518,7 +535,7 @@ func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, ses
 		archive, restore = selectedPrimary[1], selectedPrimary[2]
 		lifecycle = organization.LifecycleConfig{Version: 1, ProofAudience: transferAudience}
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, OwnerTransferPrimary: primary, Lifecycle: lifecycle, ArchivePrimary: archive, RestorePrimary: restore})
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DomainEvidence: domainSource, DynamicRoles: roles, OwnerTransferPrimary: primary, Lifecycle: lifecycle, ArchivePrimary: archive, RestorePrimary: restore})
 	if e != nil {
 		t.Fatal(e)
 	}

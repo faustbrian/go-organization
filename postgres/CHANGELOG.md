@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add authenticated native domain-evidence apply/current-read/exact-recovery
+  through the existing coordinator, with protected audit/outbox atomicity,
+  original-expiry fences and immutable proof history. Install
+  `DomainEvidenceMigrationSource` after domain claims, configure matching bounded
+  evidence policy and a trusted keyed observer source, and use risk's privileged
+  evidence apply/revoke classifications. Archive/restore cannot resurrect proof;
+  downstream SSO protocol and routing integration remain separate work.
+
 - Add native archive/restore through the existing coordinator with atomic
   organization state/policy epochs, real signed-proof consumption and protected
   effects. Apply `LifecycleMigrationSource` after installed organization and

@@ -353,7 +353,7 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 			switch r.Action {
 			case "identity.organization.role.create", "identity.organization.role.update", "identity.organization.role.delete", "identity.organization.role.get", "identity.organization.role.list", "identity.organization.role.assign", "identity.organization.role.revoke", "identity.organization.permission-check":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
-			case "identity.organization.domain.reserve", "identity.organization.domain.withdraw", "identity.organization.domain.get":
+			case "identity.organization.domain.reserve", "identity.organization.domain.withdraw", "identity.organization.domain.get", "identity.organization.domain.evidence.apply", "identity.organization.domain.evidence.revoke":
 				allow = r.Resource.Type == "organization" || r.Resource.Type == "identity.user"
 			case "identity.password.verify":
 				allow = r.Resource.Type == "identity.request-admission" && r.Resource.ID == "identity.password.verify" || r.Resource.Type == "identity.user" && string(r.Resource.ID) == string(r.Subject.ID)

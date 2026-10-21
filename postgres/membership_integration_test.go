@@ -73,6 +73,7 @@ type orgFixture struct {
 	history                        migrationList
 	teams                          organization.TeamConfig
 	domains                        organization.DomainConfig
+	domainEvidence                 *organizationpg.DomainEvidenceSource
 	dynamicRoles                   organization.DynamicRoleConfig
 	ownerTransferPrimary           *passwordpg.ActionPrimarySource
 	lifecycle                      organization.LifecycleConfig
@@ -247,7 +248,7 @@ func (f *orgFixture) composeWithTenantLimit(t *testing.T, maximum uint64) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, DynamicRoles: f.dynamicRoles, OwnerTransferPrimary: f.ownerTransferPrimary, Lifecycle: f.lifecycle, ArchivePrimary: f.archivePrimary, RestorePrimary: f.restorePrimary})
+	f.participant, e = organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "organization_sessions", MaximumDuration: time.Second}, Profile: f.profile, LookupKeys: map[uint32]session.DigestKey{1: f.key}, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: maximum, Teams: f.teams, Domains: f.domains, DomainEvidence: f.domainEvidence, DynamicRoles: f.dynamicRoles, OwnerTransferPrimary: f.ownerTransferPrimary, Lifecycle: f.lifecycle, ArchivePrimary: f.archivePrimary, RestorePrimary: f.restorePrimary})
 	if e != nil {
 		t.Fatal(e)
 	}
