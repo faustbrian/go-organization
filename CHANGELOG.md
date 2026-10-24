@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add transport-neutral operation requests for keyed organization creation and
+  member admission, naturally repeatable exact-version member removal, and
+  current-authorized original-outcome recovery. Syntax validation is bounded
+  and credential custody cannot be serialized; existing preparation APIs remain
+  unchanged. Durable operation implementation belongs to the native adapter.
+
 - Add opt-in organization-owned domain evidence with an explicitly trusted
   bounded observer, exact scope/version/time binding and authoritative current
   reads. Original-command recovery preserves historical proof without renewing

@@ -1,5 +1,23 @@
 # go-organization
 
+## Transport-neutral direct-operation requests
+
+`CreateOperationRequest` and `AddMemberOperationRequest` carry one required
+`identity.IdempotencyKey`; `RemoveMemberOperationRequest` is a non-keyed,
+exact-version repeat operation. The durable operation owner allocates command
+IDs and create IDs, retains original request correlation, and distinguishes
+not-committed, committed and unknown outcomes. A retained request key or absent
+membership never establishes a committed domain mutation. Matching retries
+must not allocate another command or renew original authority.
+
+`OperationRecoveryRequest` carries an original safe binding plus current
+authentication; it grants no permission to resubmit or disclose the operation.
+Every request's `Validate` checks syntax and custody presence only, without IO
+or authentication. These direct request types reject implicit JSON/text export;
+HTTP integrations own separate bounded wire schemas and credential acquisition.
+Existing `CreateRequest`, `MemberRequest` and `Prepare*` APIs are unchanged.
+These additive contracts alone do not enable a durable operation or HTTP route.
+
 > **Status: experimental.** Explicit-organization membership and the selected
 > existing-recipient invitation, opt-in team-membership and domain-reservation
 > profiles are implemented. This is not a
