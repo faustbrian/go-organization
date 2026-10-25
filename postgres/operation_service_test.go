@@ -23,6 +23,10 @@ func TestOperationServiceRejectsMissingNativeOwners(t *testing.T) {
 			return err
 		},
 		func() error {
+			_, err := service.Update(t.Context(), organization.UpdateOperationRequest{}, "127.0.0.1")
+			return err
+		},
+		func() error {
 			_, err := service.AddMember(t.Context(), organization.AddMemberOperationRequest{}, "127.0.0.1")
 			return err
 		},

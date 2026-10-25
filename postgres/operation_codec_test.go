@@ -91,6 +91,36 @@ func TestOperationCodecPreservesOnlyExactOriginalBinding(t *testing.T) {
 	}
 }
 
+func TestOperationCodecPreservesUpdateOriginalScope(t *testing.T) {
+	p, b, original := operationCodecFixture(t)
+	p.op = organization.Update
+	b.Scope.RouteID = string(organization.Update)
+	b.Feature.Operation = organization.Update.Descriptor()
+	original.OperationID = string(organization.Update)
+	plain, err := json.Marshal(operationStoredBinding(original))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := sealOperationFixture(t, p, b, plain)
+	if got, err := p.restoreInput(t.Context(), b, wire); err != nil || got != original {
+		t.Fatal("original Update correlation was not restored", err)
+	}
+	for name, mutate := range map[string]func(*kernel.RequestKeyPreparationBinding){
+		"operation": func(b *kernel.RequestKeyPreparationBinding) { b.Feature.Operation = organization.Create.Descriptor() },
+		"route":     func(b *kernel.RequestKeyPreparationBinding) { b.Scope.RouteID = string(organization.Create) },
+		"intent":    func(b *kernel.RequestKeyPreparationBinding) { b.IntentDigest[1]++ },
+		"command":   func(b *kernel.RequestKeyPreparationBinding) { b.Admission.CommandID, _ = identity.NewCommandID() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := b
+			mutate(&changed)
+			if got, err := p.restoreInput(t.Context(), changed, wire); err == nil || got != (identity.CommandBinding{}) {
+				t.Fatal("Update original custody rebound to different scope")
+			}
+		})
+	}
+}
+
 func TestOperationCodecRejectsMalformedAuthenticatedPayload(t *testing.T) {
 	p, b, original := operationCodecFixture(t)
 	plain, _ := json.Marshal(operationStoredBinding(original))

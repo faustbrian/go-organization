@@ -149,6 +149,10 @@ func exerciseConcurrentDirectRemoval(t *testing.T, ctx context.Context, pool *da
 
 func exerciseGenuineDirectOperations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, source *organizationpg.Service, owner, member organization.Authentication, ownerID, memberID identity.UserID, keys map[string][32]byte, material func(string) []byte, profile string, newSource func(*database.Pool) *organizationpg.Service) {
 	t.Helper()
+	if profile == "direct-update-operations" || profile == "direct-update-contention" {
+		exerciseGenuineDirectUpdates(t, ctx, pool, db, source, owner, member, ownerID, memberID, keys, material, newSource, profile)
+		return
+	}
 	base, err := (organizationpg.MigrationSource{Version: 7000}).Load(ctx)
 	if err != nil {
 		t.Fatal(err)

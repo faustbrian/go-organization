@@ -7,11 +7,11 @@ owns transactions, command IDs, reservations, replay and scoped recovery.
 ## Optional direct organization operations
 
 `NewOperationService` borrows an existing genuine native `Service`; it directly
-implements transport-neutral `CreateOperationRequest`,
+implements transport-neutral `CreateOperationRequest`, `UpdateOperationRequest`,
 `AddMemberOperationRequest`, `RemoveMemberOperationRequest`, `ReadRequest` and
 `OperationRecoveryRequest` signatures. No application store, coordinator,
 `UnitOfWork` adapter or HTTP dependency is needed. Existing `Prepare*` APIs are
-unchanged. The facade selects only create/get/member-list/add/remove, not
+unchanged. The facade selects only create/update/get/member-list/add/remove, not
 invitations, teams, browser cookies or active organization selection.
 
 Before selecting it, install the identity coordinator's
@@ -41,7 +41,7 @@ owner's fixed default schema; private custom limits hidden in a source registry
 are not inherited. Its per-invocation registry binds the exact isolated native
 participant rather than an application callback or wrapper identity.
 
-Create/add each require the **single original client key**. The existing kernel
+Create/update/add each require the **single original client key**. The existing kernel
 atomically admits its scoped mapping and native encrypted safe original binding.
 Only the live winning preparation may proceed through actual native protected
 risk admission and execution. Concurrent candidates may allocate discarded IDs;
@@ -49,6 +49,21 @@ matching retries/restarts never allocate again, reconstruct bearer authority,
 renew deadlines or execute a new command. Ciphertext retains no raw bearer,
 client key or submitted body. Current recovery uses the real session,
 membership, authorization and journal owners again.
+
+`Update(ctx, UpdateOperationRequest, trustedCanonicalClientIP)` replaces only
+the bounded name/slug at the exact expected organization version. Select
+`identity.organization.update` in the actual request-admission/query policy;
+native current owner/administrator, action, session, scoped authority and
+privileged risk checks still apply independently. No additional migration is
+needed for Update. A successful transition advances the organization epoch
+once, not membership or global authority. Stale versions, identical replacements
+and tenant slug conflicts retain the existing metadata owner's conflict rules.
+The intent binds organization, version, name, slug and configuration. Changing
+any of them under the same original key conflicts; changing only correlation
+does not rewrite the original command. Matching retry and `RecoverOperation`
+recheck current disclosure authority without preparing against newer metadata,
+renewing authority or converting a mapping-only unknown result into execution.
+This additive native method does not enable an HTTP route.
 
 Remove is **not keyed**. Pass exact expected organization/member versions and
 no client command ID. A repeat probes the owned removal effect for the same

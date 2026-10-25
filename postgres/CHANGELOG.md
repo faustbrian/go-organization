@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add keyed `OperationService.Update` for bounded name/slug replacement at an
+  exact organization version, using existing native metadata, protected-risk,
+  audit, lifecycle and journal owners. Matching retries retain the original
+  command under current disclosure authority; changed intent conflicts and
+  mapping-only recovery remains Unknown. Select Update in the actual request
+  admission policy; no additional migration or HTTP route is introduced, and
+  existing `UpdateRequest`/`PrepareUpdate` APIs are unchanged.
+
 - Document and exercise optional published bearer-only organization HTTP
   composition against the actual native owner and PostgreSQL atomic admission,
   including original-command retries and current-session denial. HTTP routes
