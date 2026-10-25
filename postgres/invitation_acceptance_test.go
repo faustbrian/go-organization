@@ -17,6 +17,31 @@ type directInvitationAccepter interface {
 	RecoverAccept(context.Context, organization.InvitationAcceptRecoveryRequest) (organization.StoreResult, error)
 }
 
+type twoPhaseInvitationAccepter interface {
+	PrepareAcceptance(context.Context, organization.InvitationAcceptRequest, string) (organization.PreparedInvitationAcceptance, error)
+}
+
+func twoPhaseInvitationAcceptance(t testing.TB, source *organizationpg.InvitationService) twoPhaseInvitationAccepter {
+	t.Helper()
+	service, ok := any(source).(twoPhaseInvitationAccepter)
+	if !ok {
+		t.Fatal("native invitation acceptance cannot prepare authentic admission before handler middleware")
+	}
+	return service
+}
+
+func TestInvitationAcceptancePreparationRequiresActualNativeCustody(t *testing.T) {
+	var source *organizationpg.InvitationService
+	service := twoPhaseInvitationAcceptance(t, source)
+	if prepared, err := service.PrepareAcceptance(t.Context(), organization.InvitationAcceptRequest{}, "127.0.0.1"); !errors.Is(err, organization.ErrInvalidInput) || prepared != nil {
+		t.Fatal("missing native authority created a two-phase handle", err)
+	}
+	service = twoPhaseInvitationAcceptance(t, new(organizationpg.InvitationService))
+	if prepared, err := service.PrepareAcceptance(nil, organization.InvitationAcceptRequest{}, "127.0.0.1"); !errors.Is(err, organization.ErrInvalidInput) || prepared != nil {
+		t.Fatal("nil preparation context created a two-phase handle", err)
+	}
+}
+
 func directInvitationAcceptance(t testing.TB, source *organizationpg.InvitationService) directInvitationAccepter {
 	t.Helper()
 	service, ok := any(source).(directInvitationAccepter)

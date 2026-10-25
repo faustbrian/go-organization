@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add `InvitationService.PrepareAcceptance` returning an opaque two-phase handle
+  over the exact existing native preparation and authenticated original rate
+  facts. Transports can finish native/rate admission before handler middleware,
+  then execute only that same preparation. Handles are redacted,
+  non-serializable, serial-use and own no resource or detached work. Existing
+  callback `Accept` delegates compatibly; original recovery and native final
+  authority/expiry/one-use fences are unchanged. No journal or migration is added.
+
 - Add neutral once-only `InvitationService.Accept` with a synchronous additional
   admission callback over authenticated original challenge ID/lifetime before
   execution of the exact native preparation. Callback denial cannot consume or

@@ -6,11 +6,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +35,7 @@ func TestOrganizationGenuineInvitationAcceptanceConsumer(t *testing.T) {
 func exerciseGenuineInvitationAcceptance(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, source *organizationpg.InvitationService, restart func(*database.Pool) *organizationpg.InvitationService, config organizationpg.InvitationServiceConfig, worker *deliverypg.Worker, mailbox *registrationMailbox, limits capability.Limits, owner, recipient organization.Authentication, recipientID identity.UserID, identifier identity.IdentifierID) {
 	t.Helper()
 	native := directInvitationAcceptance(t, source)
+	twoPhase := twoPhaseInvitationAcceptance(t, source)
 	verifier, err := capability.NewService(config.Issuer.Crypto)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +113,74 @@ func exerciseGenuineInvitationAcceptance(t *testing.T, ctx context.Context, pool
 		return counts
 	}
 	admitted := func(context.Context, organization.InvitationAcceptAdmission) error { return nil }
+	t.Run("two-phase-original-custody", func(t *testing.T) {
+		r := issue("neutral-two-phase")
+		before := effects(r)
+		prepared, err := twoPhase.PrepareAcceptance(ctx, r, "127.0.0.1")
+		if err != nil || prepared == nil {
+			t.Fatal("genuine two-phase preparation failed", err)
+		}
+		admission, err := prepared.Admission()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkAdmission(r, admitted)(ctx, admission); err != nil {
+			t.Fatal(err)
+		}
+		if again, err := prepared.Admission(); err != nil || again != admission || effects(r) != before {
+			t.Fatal("metadata read prepared again, consumed proof or created native effects", err)
+		}
+		if _, err := json.Marshal(prepared); !errors.Is(err, organization.ErrSensitiveSerialization) {
+			t.Fatal("opaque two-phase handle serialized original custody", err)
+		}
+		text, ok := prepared.(interface{ MarshalText() ([]byte, error) })
+		if !ok {
+			t.Fatal("opaque handle lacks text custody rejection")
+		}
+		if _, err := text.MarshalText(); !errors.Is(err, organization.ErrSensitiveSerialization) {
+			t.Fatal("opaque handle exported original text custody", err)
+		}
+		if rendered := fmt.Sprintf("%#v", prepared); !strings.Contains(rendered, "redacted") || strings.Contains(rendered, admission.ChallengeID) || strings.Contains(rendered, string(r.CommandID)) {
+			t.Fatal("opaque handle exposed original preparation")
+		}
+		if result, err := prepared.Execute(nil); !errors.Is(err, organization.ErrInvalidInput) || !reflect.DeepEqual(result, organization.StoreResult{}) || effects(r) != before {
+			t.Fatal("nil execution context consumed original preparation", err)
+		}
+		// A middleware/rate denial simply drops the handle. There is no detached
+		// execution, journal or proof consumption before this explicit call.
+		result, err := prepared.Execute(ctx)
+		if err != nil || result.Receipt.Outcome != identity.CommitOutcomeCommitted || result.Receipt.Binding != admission.Binding {
+			t.Fatal("two-phase execution did not retain exact original preparation", result.Receipt.Outcome, err)
+		}
+		after := effects(r)
+		if replay, err := prepared.Execute(ctx); err != nil || !reflect.DeepEqual(replay, result) || effects(r) != after {
+			t.Fatal("serial original handle replay changed outcome or effects", err)
+		}
+		if recovered, err := directInvitationAcceptance(t, restart(pool)).RecoverAccept(ctx, organization.InvitationAcceptRecoveryRequest{Authentication: recipient, Binding: admission.Binding, OrganizationID: r.OrganizationID}); err != nil || !reflect.DeepEqual(recovered, result) || effects(r) != after {
+			t.Fatal("two-phase original recovery changed history", err)
+		}
+	})
+	t.Run("two-phase-final-recipient-fence", func(t *testing.T) {
+		r := issue("neutral-two-phase-withdrawal")
+		prepared, err := twoPhase.PrepareAcceptance(ctx, r, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Raw().Exec(ctx, `UPDATE identity.identifiers SET version=version+1 WHERE tenant_id=$1 AND user_id=$2 AND identifier_id=$3`, string(recipient.TenantID), string(recipientID), string(identifier)); err != nil {
+			t.Fatal(err)
+		}
+		result, executeErr := prepared.Execute(ctx)
+		if _, err := pool.Raw().Exec(ctx, `UPDATE identity.identifiers SET version=version-1 WHERE tenant_id=$1 AND user_id=$2 AND identifier_id=$3`, string(recipient.TenantID), string(recipientID), string(identifier)); err != nil {
+			t.Fatal(err)
+		}
+		if executeErr == nil || result.Receipt.Outcome == identity.CommitOutcomeCommitted {
+			t.Fatal("two-phase handle renewed withdrawn recipient authority", result.Receipt.Outcome, executeErr)
+		}
+		counts := effects(r)
+		if counts[1] != 0 || counts[2] != 0 || counts[5] != 0 {
+			t.Fatal("two-phase withdrawal retained protected acceptance effects")
+		}
+	})
 	for _, mode := range []string{"error", "panic", "cancel", "identifier", "session", "organization"} {
 		t.Run("admission-"+mode, func(t *testing.T) {
 			r := issue("neutral-accept-" + mode)

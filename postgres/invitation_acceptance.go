@@ -2,10 +2,74 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/faustbrian/go-capability/v2"
 	organization "github.com/faustbrian/go-organization"
 )
+
+// PrepareAcceptance retains one actual native preparation and authentic original
+// rate facts before handler middleware. It performs only existing read-only
+// preparation/verification: no reservation, proof consumption or execution.
+// The opaque serial-use handle starts no work and owns no resource to close;
+// discard it on a later admission/middleware denial. Execute never prepares again
+// or renews the original observation, session or invitation deadline.
+func (s *InvitationService) PrepareAcceptance(ctx context.Context, r organization.InvitationAcceptRequest, network string) (organization.PreparedInvitationAcceptance, error) {
+	if s == nil || s.core == nil || s.root == nil || ctx == nil || r.Validate() != nil {
+		return nil, organization.ErrInvalidInput
+	}
+	bounded, cancel := context.WithTimeout(ctx, s.config.Core.MaximumDuration)
+	defer cancel()
+	if err := bounded.Err(); err != nil {
+		return nil, err
+	}
+	prepared, err := s.PrepareAccept(bounded, r, network)
+	if err != nil {
+		return nil, err
+	}
+	admission, err := s.invitationAcceptAdmission(bounded, prepared)
+	if err != nil {
+		return nil, err
+	}
+	return &preparedInvitationAcceptance{service: s, prepared: prepared, admission: admission}, nil
+}
+
+// The handle borrows the existing owner's original serial-use invocation. The
+// metadata is immutable; only existing Execute owns any mutable command state.
+type preparedInvitationAcceptance struct {
+	service   *InvitationService
+	prepared  PreparedInvitation
+	admission organization.InvitationAcceptAdmission
+}
+
+var _ organization.PreparedInvitationAcceptance = (*preparedInvitationAcceptance)(nil)
+
+func (p *preparedInvitationAcceptance) Admission() (organization.InvitationAcceptAdmission, error) {
+	if p == nil || p.service == nil || p.prepared.state == nil || p.prepared.state.service != p.service || p.admission.Validate() != nil {
+		return organization.InvitationAcceptAdmission{}, organization.ErrInvalidInput
+	}
+	return p.admission, nil
+}
+
+func (p *preparedInvitationAcceptance) Execute(ctx context.Context) (organization.StoreResult, error) {
+	if ctx == nil {
+		return organization.StoreResult{}, organization.ErrInvalidInput
+	}
+	if _, err := p.Admission(); err != nil {
+		return organization.StoreResult{}, err
+	}
+	return p.service.Execute(ctx, p.prepared)
+}
+
+func (*preparedInvitationAcceptance) Format(s fmt.State, _ rune) {
+	_, _ = s.Write([]byte("organization.postgres.PreparedInvitationAcceptance(redacted)"))
+}
+func (*preparedInvitationAcceptance) MarshalJSON() ([]byte, error) {
+	return nil, organization.ErrSensitiveSerialization
+}
+func (*preparedInvitationAcceptance) MarshalText() ([]byte, error) {
+	return nil, organization.ErrSensitiveSerialization
+}
 
 // Accept performs once-only invitation acceptance using the caller's original
 // CommandID, exact versions and privately held proof. It prepares through the
@@ -24,11 +88,11 @@ func (s *InvitationService) Accept(ctx context.Context, r organization.Invitatio
 	if err := bounded.Err(); err != nil {
 		return organization.StoreResult{}, err
 	}
-	prepared, err := s.PrepareAccept(bounded, r, network)
+	prepared, err := s.PrepareAcceptance(bounded, r, network)
 	if err != nil {
 		return organization.StoreResult{}, err
 	}
-	admission, err := s.invitationAcceptAdmission(bounded, prepared)
+	admission, err := prepared.Admission()
 	if err != nil {
 		return organization.StoreResult{}, err
 	}
@@ -37,7 +101,7 @@ func (s *InvitationService) Accept(ctx context.Context, r organization.Invitatio
 		// identity instead of normalizing them as a native execution failure.
 		return organization.StoreResult{}, err
 	}
-	return s.Execute(bounded, prepared)
+	return prepared.Execute(bounded)
 }
 
 // RecoverAccept discloses only the exact original acceptance under current

@@ -6,6 +6,18 @@ owns transactions, command IDs, reservations, replay and scoped recovery.
 
 ## Once-only neutral invitation acceptance
 
+For transports with before-handler middleware, use
+`InvitationService.PrepareAcceptance(ctx, request, trustedCanonicalClientIP)` in
+pre-handler admission. Its `organization.PreparedInvitationAcceptance` handle
+retains the exact genuine native preparation. `Admission()` reads authenticated
+original rate facts without IO; apply the transport rate gate before middleware,
+then call only `Execute(ctx)` after all later gates permit it. Discard the handle
+on denial: it starts no detached work, owns no resource to close and cannot
+reserve/consume/execute by itself. The handle is opaque, redacted,
+non-serializable and serial-use; copies/aliases must not execute concurrently.
+Execution reuses original observation/session/expiry and native final fences,
+never rebuilding preparation. It is not durable recovery custody.
+
 `InvitationService.Accept(ctx, organization.InvitationAcceptRequest,
 trustedCanonicalClientIP, organization.InvitationAcceptAdmitter)` retains the
 caller's original command ID and exact organization/invitation versions. There
@@ -17,6 +29,9 @@ owning organization and authenticated original capability ID and signed
 `ExpiresAt-IssuedAt` lifetime. Current lifetime configuration cannot renew those
 facts. Use them for an additional transport rate gate; returning nil never
 replaces native current authority, expiry or atomic one-use fences.
+This compatible callback convenience method delegates to the same two-phase
+preparation and execution; it is not a replacement for pre-handler admission in
+transports whose middleware must run only after rate admission.
 
 The callback must honor the bounded context and must not detach work. Nil gates,
 errors, panic and cancellation deny execution; returned errors retain their
