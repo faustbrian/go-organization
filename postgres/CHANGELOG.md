@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add neutral once-only `InvitationService.Accept` with a synchronous additional
+  admission callback over authenticated original challenge ID/lifetime before
+  execution of the exact native preparation. Callback denial cannot consume or
+  execute, and callback errors retain transport classification. Add
+  `RecoverAccept` for full original binding/organization plus current recipient
+  authentication, preserving existing outcome and expiry semantics. No request
+  key, command allocation, journal, migration or HTTP recovery route is added;
+  explicit preparation/execution/recovery APIs remain unchanged.
+
 - Add keyed `OperationService.UpdateMember` for exact-version static member-role
   changes, including owner transitions, through existing native admission,
   last-owner, scoped authority, protected-risk and atomic effect owners. Matching

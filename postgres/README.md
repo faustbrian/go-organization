@@ -4,6 +4,34 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Once-only neutral invitation acceptance
+
+`InvitationService.Accept(ctx, organization.InvitationAcceptRequest,
+trustedCanonicalClientIP, organization.InvitationAcceptAdmitter)` retains the
+caller's original command ID and exact organization/invitation versions. There
+is no initiating key, new command allocation or automatic replay/recovery. The
+existing native `PrepareAccept` authenticates the genuine intended recipient,
+current session and exact original retained proof. The synchronous callback runs
+outside SQL before executing **that same preparation**, with its safe binding,
+owning organization and authenticated original capability ID and signed
+`ExpiresAt-IssuedAt` lifetime. Current lifetime configuration cannot renew those
+facts. Use them for an additional transport rate gate; returning nil never
+replaces native current authority, expiry or atomic one-use fences.
+
+The callback must honor the bounded context and must not detach work. Nil gates,
+errors, panic and cancellation deny execution; returned errors retain their
+identity for transport classification. Proof remains private, and a denied
+pre-execution gate cannot consume it or create a native command. Save the full
+admission binding and organization before first execution if explicit recovery
+is needed after response loss. `RecoverAccept(ctx,
+organization.InvitationAcceptRecoveryRequest)` delegates exact original history
+to the existing recovery owner with current authentication, including rollback
+for an unjoined recipient. It does not prepare, execute, infer success from
+membership, renew expiry or redeliver proof. Bare-ID recovery after losing the
+entire binding is not promised; this adds no HTTP recovery route. Inspect
+`Receipt.Outcome` even when an error is returned. Existing explicit
+`PrepareAccept`/`Execute`/`Recover` APIs and installed migrations are unchanged.
+
 ## Optional original-key invitation send
 
 `NewInvitationOperationService` borrows an existing genuine native

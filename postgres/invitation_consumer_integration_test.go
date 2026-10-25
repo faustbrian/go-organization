@@ -187,6 +187,10 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		exerciseGenuineInvitationRecoveryDisclosure(t, ctx, pool, db, organizations, service, newService, configuration, worker, mailbox, limits, owner, recipient, recipientID, identifiers.Identifiers[0].ID, signinOwner, signinRecipient)
 		return
 	}
+	if selectedProfile == "acceptance" {
+		exerciseGenuineInvitationAcceptance(t, ctx, pool, db, organizations, service, newService, configuration, worker, mailbox, limits, owner, recipient, recipientID, identifiers.Identifiers[0].ID)
+		return
+	}
 	sendInvitation := func(orgID organization.ID, orgVersion uint64) issued {
 		t.Helper()
 		i, e := identity.NewSubjectID()
