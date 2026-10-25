@@ -46,6 +46,12 @@ membership. `InvitationAcceptAdmitter` is an additional synchronous transport
 gate after native preparation, before execution of that same preparation. It
 receives authenticated original capability ID/lifetime and safe command binding,
 not proof bytes; success never replaces native current-recipient/final checks.
+For transports with before-handler middleware, `PreparedInvitationAcceptance`
+separates native preparation and rate admission from later execution.
+`Admission()` reads authenticated original metadata without IO; only
+`Execute(ctx)` executes that same opaque preparation after all additional gates.
+The handle is redacted/non-serializable, serial-use and not durable recovery
+authority. Discarding it cannot execute, consume proof or start detached work.
 `InvitationAcceptRecoveryRequest` selects only direct original acceptance history
 with current authentication, the full saved binding and owning organization.
 It contains no proof/key and never resubmits. Bare-ID recovery after losing the

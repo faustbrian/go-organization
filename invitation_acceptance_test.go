@@ -135,6 +135,13 @@ func invitationAcceptAdmission() organization.InvitationAcceptAdmission {
 	return organization.InvitationAcceptAdmission{Binding: identity.CommandBinding{CommandID: "AAAAAAAAAAAAAAAAAAAAAQ", TenantID: "tenant-a", UserID: "actor", ActorID: "actor", ActorKind: authorization.SubjectUser, OperationID: string(organization.InvitationAccept), RecordID: "invitation-a", PolicyID: "organization", PolicyVersion: 1, SchemaID: "organization-invitation-accept", SchemaVersion: 1, CorrelationID: "accept"}, OrganizationID: "org", ChallengeID: "original-invitation-challenge", ChallengeLifetime: time.Hour}
 }
 
+// This is a compile-time consumer contract, not native authority or execution
+// evidence. The genuine PostgreSQL consumer supplies and exercises the handle.
+func invitationAcceptancePortContract(prepared organization.PreparedInvitationAcceptance) {
+	var _ func() (organization.InvitationAcceptAdmission, error) = prepared.Admission
+	var _ func(context.Context) (organization.StoreResult, error) = prepared.Execute
+}
+
 func TestInvitationAcceptanceAdmissionAndRecoveryRetainExactScope(t *testing.T) {
 	a := invitationAcceptAdmission()
 	r, _ := invitationAcceptSyntax(t)

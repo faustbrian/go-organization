@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add opaque `PreparedInvitationAcceptance` for two-phase native preparation,
+  original rate admission and later exact execution. Transports can complete
+  pre-handler gates before executing without rebuilding preparation or renewing
+  authority. Existing once-only callback and original recovery contracts remain
+  unchanged; this interface adds no journal, execution engine or HTTP route.
+
 - Add non-consuming syntax validation and neutral admission/recovery custody for
   once-only invitation acceptance. A transport gate receives authenticated
   original challenge metadata before native execution; explicit recovery retains

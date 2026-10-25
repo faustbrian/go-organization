@@ -22,6 +22,22 @@ type InvitationAcceptAdmission struct {
 	ChallengeLifetime time.Duration
 }
 
+// PreparedInvitationAcceptance is one opaque original native acceptance. A
+// transport obtains it before handler middleware, admits its original rate
+// facts, then executes that same preparation only after all additional gates.
+// Admission returns a copy of authenticated original metadata without IO or
+// renewed authority; it neither consumes proof nor executes. Execute requires a
+// non-nil bounded context and retains the native current authority, original
+// session/expiry, one-use and transaction fences. It never prepares again.
+// Copies/aliases share serial-use custody and must not execute concurrently.
+// Implementations reject implicit serialization and redact diagnostics; the
+// handle contains no caller-exportable credential or proof. This is not a
+// durable recovery handle: save Admission's full binding/organization instead.
+type PreparedInvitationAcceptance interface {
+	Admission() (InvitationAcceptAdmission, error)
+	Execute(context.Context) (StoreResult, error)
+}
+
 // InvitationAcceptAdmitter is an additional synchronous transport admission
 // gate, invoked once outside SQL after native acceptance preparation and before
 // executing that exact preparation. A nil callback is invalid; errors, panics
