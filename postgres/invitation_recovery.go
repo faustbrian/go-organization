@@ -60,8 +60,8 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	}
 	actor, _ := observed.Session.Bindings()
 	var version uint64
-	var cancellation *recoveryInput
-	var rejection *organization.InvitationSnapshot
+	var membershipAdmission *recoveryInput
+	var recipientAdmission *organization.InvitationSnapshot
 	query := identity.RecoveryQuery{CommandID: b.CommandID, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
 	if x.Operation == organization.InvitationResend {
 		// Unlike initial send, resend always starts from an immutable owning
@@ -83,7 +83,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 		version = v.Organization.Version
 		binding := b
 		binding.RecordID = string(v.Organization.ID)
-		cancellation = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: v.Organization, member: v.Actor}
+		membershipAdmission = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: v.Organization, member: v.Actor}
 	} else if x.Operation == organization.InvitationCancel || x.Operation == organization.InvitationExpire {
 		if b.UserID != actor.UserID {
 			return organization.StoreResult{}, organization.ErrForbidden
@@ -98,7 +98,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 		version = current.Organization.Version
 		binding := b
 		binding.RecordID = string(current.Organization.ID)
-		cancellation = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: current.Organization, member: current.Actor}
+		membershipAdmission = &recoveryInput{binding: binding, observed: observed, credential: credential, organization: current.Organization, member: current.Actor}
 	} else if x.Operation == organization.InvitationSend {
 		// Acknowledged preparation precedes the domain row. The sole kernel's
 		// immutable original declaration, never caller-supplied org correlation
@@ -127,6 +127,7 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 			return organization.StoreResult{}, err
 		}
 		version = current.organization.Version
+		membershipAdmission = current
 	} else {
 		// Acceptance always selects an existing issued invitation. Retain its
 		// owning row/recipient comparison independently of historical metadata.
@@ -149,8 +150,8 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 			if current.RecipientUser.ID != b.UserID || current.RecipientUser.Status != identity.StatusActive || current.RecipientIdentifier.ID != i.RecipientIdentifierID || current.RecipientIdentifier.Version != i.RecipientIdentifierVersion || !current.RecipientIdentifier.Verified {
 				return organization.StoreResult{}, organization.ErrForbidden
 			}
-			rejection = &current
 		}
+		recipientAdmission = &current
 	}
 	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(b.TenantID), Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(x.Organization.ID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(version, 10))}}, Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
 	decision, err := s.config.Authorization.Decide(bounded, caller)
@@ -164,15 +165,15 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	// independently of the organization policy decision above.
 	caller.Request.Resource = authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(b.UserID)}
 	receipt, err := p.coordinator.RecoverFeatureCommand(bounded, query, caller)
-	if cancellation != nil {
+	if membershipAdmission != nil {
 		// Reuse the native membership owner's exact session/org/member/scoped
 		// fence after both external callbacks; no renewed policy or observation.
 		owner := Service{participant: s.actor, config: ServiceConfig{Core: s.config.Core, Sessions: s.config.Sessions}}
-		if e := owner.revalidateRecovery(bounded, cancellation); e != nil {
+		if e := owner.revalidateRecovery(bounded, membershipAdmission); e != nil {
 			return organization.StoreResult{}, e
 		}
 	}
-	if rejection != nil {
+	if recipientAdmission != nil {
 		// Both disclosure policy callbacks may withdraw the original recipient
 		// session/identifier or organization. Reuse the native session fence,
 		// without inventing membership for a recipient who never joined.
@@ -180,11 +181,11 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 		if e := owner.revalidateRecovery(bounded, &recoveryInput{binding: b, observed: observed, credential: credential}); e != nil {
 			return organization.StoreResult{}, e
 		}
-		current, e := s.repository.ReadInvitation(bounded, organization.InvitationQuery{Operation: organization.InvitationReject, TenantID: b.TenantID, ActorID: actor.UserID, RecipientUserID: actor.UserID, OrganizationID: x.Organization.ID, InvitationID: x.Invitation.Record.ID})
+		current, e := s.repository.ReadInvitation(bounded, organization.InvitationQuery{Operation: op, TenantID: b.TenantID, ActorID: actor.UserID, RecipientUserID: actor.UserID, OrganizationID: x.Organization.ID, InvitationID: x.Invitation.Record.ID})
 		if e != nil {
 			return organization.StoreResult{}, e
 		}
-		if current.Organization != rejection.Organization || current.RecipientUser != rejection.RecipientUser || current.RecipientIdentifier != rejection.RecipientIdentifier || current.Record.Invitation != rejection.Record.Invitation {
+		if current.Organization != recipientAdmission.Organization || current.RecipientUser != recipientAdmission.RecipientUser || current.RecipientIdentifier != recipientAdmission.RecipientIdentifier || current.Record.Invitation != recipientAdmission.Record.Invitation || op == organization.InvitationAccept && current.Target != recipientAdmission.Target {
 			return organization.StoreResult{}, organization.ErrForbidden
 		}
 	}

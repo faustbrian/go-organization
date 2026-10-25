@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Recheck primary session, organization and owner/recipient admission after
+  legacy invitation send/accept recovery-policy callbacks, withholding historical
+  metadata after a late withdrawal. Unjoined recipients can still recover their
+  original failed acceptance; outcomes, expiry and proof custody are unchanged.
+
 - Add opt-in `InvitationOperationService.Send` for original-key invitation send
   without caller-allocated IDs. Reuse native invitation, risk, capability,
   encrypted-delivery and lifecycle owners; matching retries recover only original

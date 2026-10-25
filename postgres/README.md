@@ -390,6 +390,14 @@ current owner/action policy is checked separately. Legacy or missing durable
 correlation fails closed rather than guessing that an unobserved send did not
 commit. A caller-selected different organization cannot redirect reconciliation.
 
+Legacy send and acceptance recovery re-read the submitted session after all
+disclosure-policy callbacks. Send also fences the exact current organization,
+owner membership and scoped authority; acceptance re-reads the organization,
+verified recipient, invitation and any existing target membership. A withdrawal
+during either callback returns no historical projection. This does not require
+membership for an intended recipient whose acceptance rolled back, change the
+original outcome or expiry, renew execution authority, or regenerate delivery.
+
 A definitive failed acceptance retains `NotCommitted` for its original command
 and terminal-releases the unused grant under the shared capability owner's
 contract. Zero uses does not make the proof reusable: a new command using it is
