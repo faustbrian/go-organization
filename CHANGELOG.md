@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add keyed `UpdateMemberOperationRequest` for static member-role replacement at
+  exact organization/member versions, including owner transitions and original
+  outcome recovery syntax. Credentials and initiating keys remain opaque,
+  non-serializable custody; native current authority and last-owner checks are
+  unchanged. Existing explicit preparation APIs remain compatible; these neutral
+  contracts alone do not enable a durable operation or HTTP route.
+
 - Add `InvitationSendOperationRequest` for original-key invitation send without
   caller-allocated command/invitation IDs or submitted addresses. Matching retries
   retain original recipient/version intent and cannot renew authority or proof;

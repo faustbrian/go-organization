@@ -49,6 +49,24 @@ type AddMemberOperationRequest struct {
 	CorrelationID                      string
 }
 
+// UpdateMemberOperationRequest is the transport-neutral keyed static-role
+// replacement for an active member. Role and the positive, incrementable
+// organization/member versions retain MemberRequest's semantics, including
+// owner transitions. The durable owner allocates the command ID; matching
+// retries recover only the original outcome without renewing authority or
+// executing again. Current owner/administrator admission, last-owner safety and
+// historical disclosure remain native decisions, not syntax-validation grants.
+// Authentication and the single required key are borrowed opaque custody.
+type UpdateMemberOperationRequest struct {
+	Authentication                     Authentication
+	IdempotencyKey                     identity.IdempotencyKey
+	OrganizationID                     ID
+	UserID                             identity.UserID
+	Role                               Role
+	OrganizationVersion, MemberVersion uint64
+	CorrelationID                      string
+}
+
 // RemoveMemberOperationRequest is a naturally repeatable exact-version removal,
 // not a keyed operation. There is deliberately no client key or command ID.
 // The durable owner retains its original natural-request correlation and
@@ -99,6 +117,15 @@ func (r AddMemberOperationRequest) Validate() error {
 	return nil
 }
 
+// Validate checks bounded static-role and exact-version syntax without IO,
+// current authorization, key admission, command allocation or last-owner checks.
+func (r UpdateMemberOperationRequest) Validate() error {
+	if !validOperationAuthentication(r.Authentication, r.CorrelationID) || r.IdempotencyKey == (identity.IdempotencyKey{}) || !safeID(string(r.OrganizationID)) || !safeID(string(r.UserID)) || !r.Role.Valid() || !validOperationVersions(r.OrganizationVersion, r.MemberVersion) || r.MemberVersion == 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
 // Validate checks bounded exact-version removal syntax without inventing
 // replay authority from an absent or tombstoned membership.
 func (r RemoveMemberOperationRequest) Validate() error {
@@ -112,7 +139,7 @@ func (r RemoveMemberOperationRequest) Validate() error {
 // A structurally valid binding still confers no disclosure permission.
 func (r OperationRecoveryRequest) Validate() error {
 	op := Operation(r.Binding.OperationID)
-	if op != Create && op != Update && op != AddMember && op != RemoveMember || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
+	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
 		return ErrInvalidInput
 	}
 	return nil
@@ -162,6 +189,21 @@ func (AddMemberOperationRequest) MarshalJSON() ([]byte, error) { return nil, Err
 
 // MarshalText rejects implicit text and map-key export of direct custody.
 func (AddMemberOperationRequest) MarshalText() ([]byte, error) { return nil, ErrSensitiveSerialization }
+
+// Format redacts credentials, keys and request values from diagnostics.
+func (UpdateMemberOperationRequest) Format(s fmt.State, _ rune) {
+	_, _ = s.Write([]byte("organization.UpdateMemberOperationRequest(redacted)"))
+}
+
+// MarshalJSON rejects accidental transport/persistence of direct custody.
+func (UpdateMemberOperationRequest) MarshalJSON() ([]byte, error) {
+	return nil, ErrSensitiveSerialization
+}
+
+// MarshalText rejects implicit text and map-key export of direct custody.
+func (UpdateMemberOperationRequest) MarshalText() ([]byte, error) {
+	return nil, ErrSensitiveSerialization
+}
 
 // Format redacts credentials and request values from diagnostics.
 func (RemoveMemberOperationRequest) Format(s fmt.State, _ rune) {

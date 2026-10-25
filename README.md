@@ -2,8 +2,8 @@
 
 ## Transport-neutral direct-operation requests
 
-`CreateOperationRequest`, `UpdateOperationRequest` and
-`AddMemberOperationRequest` carry one required
+`CreateOperationRequest`, `UpdateOperationRequest`,
+`AddMemberOperationRequest` and `UpdateMemberOperationRequest` carry one required
 `identity.IdempotencyKey`; `RemoveMemberOperationRequest` is a non-keyed,
 exact-version repeat operation. The durable operation owner allocates command
 IDs and create IDs, retains original request correlation, and distinguishes
@@ -21,6 +21,12 @@ expected organization version. A matching Update key recovers only its original
 command; changed metadata, organization or version conflicts, and an unknown
 outcome grants no permission to execute again. Current authority is still
 required to disclose its original outcome.
+Static member-role replacement retains `MemberRequest`'s role and exact positive
+organization/member versions, including owner transitions and native last-owner
+protection. Matching keys preserve the original role intent and command; current
+disclosure may admit exact self-demotion history without granting renewed
+management authority. `OperationRecoveryRequest` accepts that original outcome,
+not ownership-transfer execution or disclosure.
 Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
 are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
