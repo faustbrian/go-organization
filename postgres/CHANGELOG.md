@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add keyed `OperationService.UpdateMember` for exact-version static member-role
+  changes, including owner transitions, through existing native admission,
+  last-owner, scoped authority, protected-risk and atomic effect owners. Matching
+  retries retain original metadata under current disclosure authority, including
+  legitimate self-demotion history; changed intent/configuration conflicts and
+  mapping-only absence remains Unknown. Select member-update request admission;
+  no additional migration, ownership-transfer proof profile or HTTP route is
+  introduced. Existing explicit preparation and recovery contracts are unchanged.
+
 - Recheck primary session, organization and owner/recipient admission after
   legacy invitation send/accept recovery-policy callbacks, withholding historical
   metadata after a late withdrawal. Unjoined recipients can still recover their

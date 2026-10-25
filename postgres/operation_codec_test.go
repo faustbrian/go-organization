@@ -42,6 +42,17 @@ func operationCodecFixture(t testing.TB) (*operationInvocation, kernel.RequestKe
 	return p, b, original
 }
 
+func TestUpdateMemberOperationRejectsMissingCustody(t *testing.T) {
+	for _, service := range []*OperationService{nil, {}} {
+		for _, ctx := range []context.Context{nil, t.Context()} {
+			got, err := service.UpdateMember(ctx, organization.UpdateMemberOperationRequest{}, "127.0.0.1")
+			if !errors.Is(err, organization.ErrInvalidInput) || got != (organization.StoreResult{}) {
+				t.Fatal("missing native operation custody manufactured role authority")
+			}
+		}
+	}
+}
+
 func sealOperationFixture(t testing.TB, p *operationInvocation, b kernel.RequestKeyPreparationBinding, plain []byte) []byte {
 	t.Helper()
 	aad, err := p.inputContext(b)
@@ -92,30 +103,37 @@ func TestOperationCodecPreservesOnlyExactOriginalBinding(t *testing.T) {
 }
 
 func TestOperationCodecPreservesUpdateOriginalScope(t *testing.T) {
-	p, b, original := operationCodecFixture(t)
-	p.op = organization.Update
-	b.Scope.RouteID = string(organization.Update)
-	b.Feature.Operation = organization.Update.Descriptor()
-	original.OperationID = string(organization.Update)
-	plain, err := json.Marshal(operationStoredBinding(original))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire := sealOperationFixture(t, p, b, plain)
-	if got, err := p.restoreInput(t.Context(), b, wire); err != nil || got != original {
-		t.Fatal("original Update correlation was not restored", err)
-	}
-	for name, mutate := range map[string]func(*kernel.RequestKeyPreparationBinding){
-		"operation": func(b *kernel.RequestKeyPreparationBinding) { b.Feature.Operation = organization.Create.Descriptor() },
-		"route":     func(b *kernel.RequestKeyPreparationBinding) { b.Scope.RouteID = string(organization.Create) },
-		"intent":    func(b *kernel.RequestKeyPreparationBinding) { b.IntentDigest[1]++ },
-		"command":   func(b *kernel.RequestKeyPreparationBinding) { b.Admission.CommandID, _ = identity.NewCommandID() },
-	} {
-		t.Run(name, func(t *testing.T) {
-			changed := b
-			mutate(&changed)
-			if got, err := p.restoreInput(t.Context(), changed, wire); err == nil || got != (identity.CommandBinding{}) {
-				t.Fatal("Update original custody rebound to different scope")
+	for _, op := range []organization.Operation{organization.Update, organization.UpdateMember} {
+		t.Run(string(op), func(t *testing.T) {
+			p, b, original := operationCodecFixture(t)
+			p.op = op
+			b.Scope.RouteID = string(op)
+			b.Feature.Operation = op.Descriptor()
+			original.OperationID = string(op)
+			if op == organization.UpdateMember {
+				original.UserID = "member"
+			}
+			plain, err := json.Marshal(operationStoredBinding(original))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire := sealOperationFixture(t, p, b, plain)
+			if got, err := p.restoreInput(t.Context(), b, wire); err != nil || got != original {
+				t.Fatal("original Update correlation was not restored", err)
+			}
+			for name, mutate := range map[string]func(*kernel.RequestKeyPreparationBinding){
+				"operation": func(b *kernel.RequestKeyPreparationBinding) { b.Feature.Operation = organization.Create.Descriptor() },
+				"route":     func(b *kernel.RequestKeyPreparationBinding) { b.Scope.RouteID = string(organization.Create) },
+				"intent":    func(b *kernel.RequestKeyPreparationBinding) { b.IntentDigest[1]++ },
+				"command":   func(b *kernel.RequestKeyPreparationBinding) { b.Admission.CommandID, _ = identity.NewCommandID() },
+			} {
+				t.Run(name, func(t *testing.T) {
+					changed := b
+					mutate(&changed)
+					if got, err := p.restoreInput(t.Context(), changed, wire); err == nil || got != (identity.CommandBinding{}) {
+						t.Fatal("Update original custody rebound to different scope")
+					}
+				})
 			}
 		})
 	}
@@ -161,18 +179,29 @@ func FuzzOperationEnvelopeRecovery(f *testing.F) {
 	p, b, original := operationCodecFixture(f)
 	plain, _ := json.Marshal(operationStoredBinding(original))
 	f.Add(sealOperationFixture(f, p, b, plain), uint8(0))
+	member := *p
+	member.op = organization.UpdateMember
+	memberBinding, memberOriginal := b, original
+	memberBinding.Scope.RouteID = string(organization.UpdateMember)
+	memberBinding.Feature.Operation = organization.UpdateMember.Descriptor()
+	memberOriginal.OperationID, memberOriginal.UserID = string(organization.UpdateMember), "member"
+	memberPlain, _ := json.Marshal(operationStoredBinding(memberOriginal))
+	f.Add(sealOperationFixture(f, &member, memberBinding, memberPlain), uint8(2))
 	f.Add([]byte("invalid"), uint8(1))
 	f.Add([]byte{}, uint8(2))
 	f.Fuzz(func(t *testing.T, wire []byte, changed uint8) {
 		if len(wire) > 32768 {
 			return
 		}
-		binding := b
+		invocation, binding, expected := p, b, original
+		if changed&2 != 0 {
+			invocation, binding, expected = &member, memberBinding, memberOriginal
+		}
 		if changed%2 != 0 {
 			binding.IntentDigest[0] ^= 0x80
 		}
-		got, err := p.restoreInput(t.Context(), binding, wire)
-		if err == nil && (got != original || changed%2 != 0) {
+		got, err := invocation.restoreInput(t.Context(), binding, wire)
+		if err == nil && (got != expected || changed%2 != 0) {
 			t.Fatal("hostile ciphertext changed original correlation")
 		}
 		if err != nil && got != (identity.CommandBinding{}) {

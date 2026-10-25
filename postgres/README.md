@@ -65,11 +65,13 @@ mapping-only Unknown contract.
 
 `NewOperationService` borrows an existing genuine native `Service`; it directly
 implements transport-neutral `CreateOperationRequest`, `UpdateOperationRequest`,
-`AddMemberOperationRequest`, `RemoveMemberOperationRequest`, `ReadRequest` and
+`AddMemberOperationRequest`, `UpdateMemberOperationRequest`,
+`RemoveMemberOperationRequest`, `ReadRequest` and
 `OperationRecoveryRequest` signatures. No application store, coordinator,
 `UnitOfWork` adapter or HTTP dependency is needed. Existing `Prepare*` APIs are
-unchanged. The facade selects only create/update/get/member-list/add/remove, not
-invitations, teams, browser cookies or active organization selection.
+unchanged. The facade selects only create/update/get/member-list/add/role-update/
+remove, not invitations, ownership transfer, teams, browser cookies or active
+organization selection.
 
 Before selecting it, install the identity coordinator's
 `RequestKeyMigrationSource` and `RequestKeyPreparationMigrationSource` and the
@@ -98,7 +100,8 @@ owner's fixed default schema; private custom limits hidden in a source registry
 are not inherited. Its per-invocation registry binds the exact isolated native
 participant rather than an application callback or wrapper identity.
 
-Create/update/add each require the **single original client key**. The existing kernel
+Create/update/add/role-update each require the **single original client key**.
+The existing kernel
 atomically admits its scoped mapping and native encrypted safe original binding.
 Only the live winning preparation may proceed through actual native protected
 risk admission and execution. Concurrent candidates may allocate discarded IDs;
@@ -121,6 +124,22 @@ does not rewrite the original command. Matching retry and `RecoverOperation`
 recheck current disclosure authority without preparing against newer metadata,
 renewing authority or converting a mapping-only unknown result into execution.
 This additive native method does not enable an HTTP route.
+
+`UpdateMember(ctx, UpdateMemberOperationRequest, trustedCanonicalClientIP)`
+replaces one active member's static role at exact positive organization and
+member versions. Select `identity.organization.member.update` on the exact
+`identity.request-admission` resource in the actual request-key policy. Existing
+`PrepareUpdateMember`/`Execute` own current owner/administrator admission, owner
+transitions, scoped target authority, protected risk, audit, lifecycle and
+last-owner serialization; this facade adds no role or replay engine. The intent
+binds organization, target, role, both versions and configuration. Matching keys
+recover only their original metadata, even after later role/version changes.
+Exact self-demotion history requires current active membership/session and
+disclosure policy, not a renewed manager role; removal or withdrawn scoped
+authority denies disclosure. Historical success never restores privileges.
+Stale/no-op requests retain native conflict rules, and mapping-only absence
+remains Unknown without an expiry or replacement-execution grant. No additional
+migration, ownership-transfer proof/MFA profile or HTTP route is introduced.
 
 Remove is **not keyed**. Pass exact expected organization/member versions and
 no client command ID. A repeat probes the owned removal effect for the same

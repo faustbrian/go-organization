@@ -56,7 +56,8 @@ func NewOperationCustodyConfig(active string, keys map[string][]byte) (Operation
 	}}, nil
 }
 
-// OperationServiceConfig opts into direct create/add and repeat removal using
+// OperationServiceConfig opts into direct create/update/add/role-update and
+// repeat removal using
 // the existing Service's real native owners. ConfigurationID is a fixed trusted
 // deployment profile (1..128 bytes), not request data; change it for material
 // selected-policy changes. Coordinator/RequestKeys select the sole existing
