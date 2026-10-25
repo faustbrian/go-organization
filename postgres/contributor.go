@@ -53,6 +53,13 @@ type ContributorConfig struct {
 type Contributor struct {
 	repository *Repository
 	config     ContributorConfig
+	// Only the direct-operation facade creates a serial-use immutable clone
+	// with this callback. The registered clone retains its own request input;
+	// ordinary contributors remain immutable and contain no invocation state.
+	operationInput func(context.Context, kernel.RequestKeyPreparationBinding, identity.RequestIntent) ([]byte, error)
+	// Only the same isolated facade participant can decode its own retained
+	// ciphertext. Ordinary native contributors preserve generic recovery.
+	operationRestore func(context.Context, kernel.RequestKeyPreparationBinding, []byte) (identity.CommandBinding, error)
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)

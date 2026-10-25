@@ -414,6 +414,12 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	service := consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+	if strings.HasPrefix(invitationProfile, "direct-") {
+		exerciseGenuineDirectOperations(t, ctx, pool, db, service, owner, member, ownerID, memberID, keys, material, invitationProfile, func(p *database.Pool) *organizationpg.Service {
+			return consumerOrganizationService(t, p, sessions, profile, lookup, keys, material)
+		})
+		return
+	}
 	if invitationProfile == "dynamic-role" {
 		exerciseGenuineDynamicRoles(t, ctx, db, service, owner, member, signinOwner(), memberID, func() *organizationpg.Service {
 			return consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)

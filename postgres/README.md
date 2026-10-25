@@ -4,6 +4,75 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Optional direct organization operations
+
+`NewOperationService` borrows an existing genuine native `Service`; it directly
+implements transport-neutral `CreateOperationRequest`,
+`AddMemberOperationRequest`, `RemoveMemberOperationRequest`, `ReadRequest` and
+`OperationRecoveryRequest` signatures. No application store, coordinator,
+`UnitOfWork` adapter or HTTP dependency is needed. Existing `Prepare*` APIs are
+unchanged. The facade selects only create/get/member-list/add/remove, not
+invitations, teams, browser cookies or active organization selection.
+
+Before selecting it, install the identity coordinator's
+`RequestKeyMigrationSource` and `RequestKeyPreparationMigrationSource` and the
+later `OperationLookupMigrationSource`. Allocate an unused later organization
+migration version, append it to the **same installed runner namespace/history**
+and use `go-migrations/v3.Runner`. The removal index uses
+`TransactionModeNone` with `CREATE UNIQUE INDEX CONCURRENTLY`; wrapping it in
+an application transaction is invalid. The additive partial index covers only
+committed removal history `(tenant_id, organization_id, before_version)`.
+Existing aggregate epoch serialization guarantees that uniqueness. Existing
+writer schemas and migration checksums do not change; unrelated effects add no
+index entries. A failed/interrupted concurrent build requires inspecting and
+reconciling the exact invalid index before retrying the migration; there is no
+destructive automatic rollback or table rewrite.
+
+Supply current matching coordinator query/admission and request-key policies,
+immutable request namespace/lookup key, retained fingerprint keys, a fixed
+`ConfigurationID`, closed `OperationCustodyConfig`, and a bounded concurrent-safe
+canonical organization-ID callback. Change the configuration identity when the
+selected policy/configuration materially changes; old input must not silently
+enroll in a new profile. Retain envelope, request-lookup and fingerprint keys for
+as long as original mappings need recovery. All dependencies remain borrowed;
+the facade starts no goroutines and owns no pool shutdown.
+This selected profile uses native default audit limits and the lifecycle
+owner's fixed default schema; private custom limits hidden in a source registry
+are not inherited. Its per-invocation registry binds the exact isolated native
+participant rather than an application callback or wrapper identity.
+
+Create/add each require the **single original client key**. The existing kernel
+atomically admits its scoped mapping and native encrypted safe original binding.
+Only the live winning preparation may proceed through actual native protected
+risk admission and execution. Concurrent candidates may allocate discarded IDs;
+matching retries/restarts never allocate again, reconstruct bearer authority,
+renew deadlines or execute a new command. Ciphertext retains no raw bearer,
+client key or submitted body. Current recovery uses the real session,
+membership, authorization and journal owners again.
+
+Remove is **not keyed**. Pass exact expected organization/member versions and
+no client command ID. A repeat probes the owned removal effect for the same
+actor/target/epoch, checks the native tombstone, discovers the actual original
+kernel binding and recovers its real receipt under current authority. An absent
+member, fabricated receipt, different actor or later re-admission cannot provide
+success. Native last-owner protection remains mandatory.
+
+Inspect `Receipt.Outcome` even when the returned error is nonnil. An unknown
+outcome retains original correlation and must not be resubmitted. A definitive
+rollback keeps its original `NotCommitted` failure after a dependency recovers.
+Safe binding metadata is correlation only, never a disclosure or mutation
+capability. The exact registered native decoder authenticates its retained
+mapping for the kernel's explicit `RecoverPreparedFeatureCommand` path. A real
+mapping with no journal/claim remains **Unknown** with original correlation:
+the original invocation could still create its journal, so absence is never
+`NotCommitted` or a fresh execution grant. Ordinary generic recovery retains
+its uniform absent/denied privacy. Missing/foreign/corrupt mappings disclose no
+new receipt; recovery never reconstructs authority or executes the command.
+
+The transport must supply the trusted canonical full client address and enforce
+its selected HTTP rate policy. Native protected risk limits are separate and
+remain inside the existing durable owner.
+
 ## Optional native archive/restore
 
 See the [lifecycle contract](../docs/lifecycle.md). Install

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add opt-in direct keyed create/member admission and non-keyed repeat removal
+  on the existing native owner, with original encrypted correlation, current
+  recovery authority and last-owner protection. Existing preparation APIs are
+  unchanged. Install the later concurrent `OperationLookupMigrationSource` and
+  identity request-key/preparation migrations before selecting the facade;
+  retain configured custody keys. Explicit native mapped-original recovery
+  preserves Unknown when no journal exists without weakening ordinary generic
+  recovery privacy, fabricating success or creating a replacement command.
+
 - Add authenticated native domain-evidence apply/current-read/exact-recovery
   through the existing coordinator, with protected audit/outbox atomicity,
   original-expiry fences and immutable proof history. Install

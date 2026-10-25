@@ -526,7 +526,17 @@ func (u *unitOfWork) Recover(ctx context.Context, id identity.CommandID) (organi
 	}
 	b := r.binding
 	q := identity.RecoveryQuery{CommandID: id, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
-	receipt, e := s.config.Coordinator.RecoverFeatureCommand(ctx, q, r.caller)
+	var receipt identity.CommandResult
+	var e error
+	if s.participant.operationRestore != nil && (organization.Operation(b.OperationID) == organization.Create || organization.Operation(b.OperationID) == organization.AddMember) {
+		// Only the facade's exact invocation participant opts into real mapped
+		// original recovery. Reuse these current native disclosure fences; a
+		// mapping with no journal remains Unknown, never a reexecution grant.
+		feature := kernel.FeatureRegistration{Contributor: s.participant.Descriptor(), Operation: organization.Operation(b.OperationID).Descriptor()}
+		receipt, e = s.config.Coordinator.RecoverPreparedFeatureCommand(ctx, q, r.caller, feature, s.participant)
+	} else {
+		receipt, e = s.config.Coordinator.RecoverFeatureCommand(ctx, q, r.caller)
+	}
 	if err := s.revalidateRecovery(ctx, r); err != nil {
 		return organization.StoreResult{}, err
 	}
