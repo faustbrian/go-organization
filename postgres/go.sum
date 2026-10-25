@@ -43,8 +43,8 @@ github.com/faustbrian/go-authorization/v3 v3.0.1-0.20261015052455-a55bbebb1060 h
 github.com/faustbrian/go-authorization/v3 v3.0.1-0.20261015052455-a55bbebb1060/go.mod h1:1CrqZmsebZ1miA3k8hitH0g2fCSHuzdsmSoCRJ58zfw=
 github.com/faustbrian/go-cache/v2 v2.0.0 h1:I/e1YaZzs4DMFmqyvOs/kG8U/env6/5ZH+5H9o8/ba0=
 github.com/faustbrian/go-cache/v2 v2.0.0/go.mod h1:dB+6KBmhLYDO7UqjNiqdl/G8q8dlDrzwNjeYSzKHrVo=
-github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261020152056-34ff02997fad h1:yyNwR6SV88Hgw5RMMelGood9OtYXLGXit4UeCPkO97Q=
-github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261020152056-34ff02997fad/go.mod h1:7KzF2zSWRvClSnXLy+j+0Z6/vYfIUm8d6ZphKEwuhbQ=
+github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261025210917-9c2e20446169 h1:T0PL1eSfO8HmrcC4cKlr5QQcgFw3K7t8IhmIFlv2UMI=
+github.com/faustbrian/go-capability/postgres/identity v0.0.0-20261025210917-9c2e20446169/go.mod h1:7KzF2zSWRvClSnXLy+j+0Z6/vYfIUm8d6ZphKEwuhbQ=
 github.com/faustbrian/go-capability/v2 v2.0.2-0.20261015044219-caab644d2fec h1:zsKeLj0VkOz+wRjKvvACtVF4MO229KsUXIw9CR0jywY=
 github.com/faustbrian/go-capability/v2 v2.0.2-0.20261015044219-caab644d2fec/go.mod h1:ssUHOHCArf/XQ+xfzVOmiDsV3eTPJeS2hyFH5uhqIJE=
 github.com/faustbrian/go-circuit-breaker v1.0.1 h1:lClA7sa8CItC6KRAlQxR3nuqaq8dx+2yt5HfJmXefPc=
@@ -103,8 +103,8 @@ github.com/faustbrian/go-identity/password/postgres v0.0.0-20261020185005-132bbe
 github.com/faustbrian/go-identity/password/postgres v0.0.0-20261020185005-132bbe2b32db/go.mod h1:t5783QAJcYr6mH3FGTqz5CgdwTOfD1z0zgwDFSajhak=
 github.com/faustbrian/go-identity/phone v0.0.0-20261020145705-eb408832e8af h1:7FDgYIGFGjk/LiIsneUGH9np4fHAbzNIkRpF0pDsqr4=
 github.com/faustbrian/go-identity/phone v0.0.0-20261020145705-eb408832e8af/go.mod h1:rQXIEiPXU/DMLt80tkafJnol/ayyUHFoS2ya3hVR1nE=
-github.com/faustbrian/go-identity/postgres v0.0.0-20261024145157-422b9fa9452f h1:g5XFOSvFp05bjCdSs2ux9+EV8QsYCqKQUl3nCkWeQ6U=
-github.com/faustbrian/go-identity/postgres v0.0.0-20261024145157-422b9fa9452f/go.mod h1:m//LlYNUNgr+jJP2YDW0FQPdX8TOJkAsLTCIUYRtE60=
+github.com/faustbrian/go-identity/postgres v0.0.0-20261025193805-9ccf9a606602 h1:StXq1Y3WoBNWiTUvuBoYzdzqVxPglNLvk4Z0xCCu6+8=
+github.com/faustbrian/go-identity/postgres v0.0.0-20261025193805-9ccf9a606602/go.mod h1:m//LlYNUNgr+jJP2YDW0FQPdX8TOJkAsLTCIUYRtE60=
 github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789 h1:AcnrkJ3z7oITrIUc6nSJX3OwLitJek2bRJDRu+eE7SQ=
 github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789/go.mod h1:O/hmm6Lqqb8SknW6SGEhv+EornZU+sR8KVKCXK5h+uY=
 github.com/faustbrian/go-identity/risk v0.0.0-20261021003004-0e56be2725e5 h1:HMXn/L3xJM0tjO+5uE4xlcRhv/uglJ6fGCsh5Hj6LxE=
@@ -131,8 +131,8 @@ github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc h1:u
 github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc/go.mod h1:h9WNJuNOR77bYc9ni8VPeyFTAyQcmyjCAmT5Bko8w60=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820 h1:/5nveXXAZ0rYYsxG8uJbQDxkC9rse6kIEOeq2yGr2C8=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820/go.mod h1:BpEy2DPz/YR5C9gcBcKAxkG4fO+jo6WLwjNDy075MYY=
-github.com/faustbrian/go-organization v0.0.0-20261025092558-c0f3cea82085 h1:N8wlsJMABKVfyY6yLzv5kDXgbsuGWuVVmML8eTjj4nA=
-github.com/faustbrian/go-organization v0.0.0-20261025092558-c0f3cea82085/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
+github.com/faustbrian/go-organization v0.0.0-20261025195453-84e89924c423 h1:rSwMuWp2X9gwyR3WNDFJMQNNfoPIdZayFq9ogar4Emk=
+github.com/faustbrian/go-organization v0.0.0-20261025195453-84e89924c423/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff h1:8BIB469appqyn79T6j/sJQAS3dN6+budadfpPLwtqIg=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff/go.mod h1:Tqc83xc8RVAsi6JAW3dkKM1OFVos7cfayeNHBbWstsA=
 github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7 h1:yYXsPBwz+mm8JMdWfl+DcTdeD52C/zlBW2H4Tb40gKk=

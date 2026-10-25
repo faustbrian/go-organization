@@ -4,6 +4,63 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+## Optional original-key invitation send
+
+`NewInvitationOperationService` borrows an existing genuine native
+`InvitationService`. Its `Send(ctx, organization.InvitationSendOperationRequest,
+trustedCanonicalClientIP)` allocates command/invitation IDs through the existing
+immutable request-key owner and then uses the existing invitation engine. The
+request selects an exact organization/version and existing verified recipient
+user/identifier, never an address or caller role. Member role, original expiry
+and delivery configuration are frozen. Existing explicit `PrepareSend` and
+one-use `PrepareAccept` APIs remain unchanged; this adds no HTTP route.
+
+Supply `InvitationOperationServiceConfig` with an explicit current request-key
+policy admitting `identity.organization.invitation-send` on the exact
+`identity.request-admission` route/resource, a fixed namespace/lookup key,
+`ConfigurationID`, closed `OperationCustodyConfig` and bounded concurrency-safe
+canonical `NewInvitationID`. The source's native query/admission, owner, session,
+verified recipient and protected-risk policies still apply independently. Change
+the configuration identity for material changes to borrowed policy, signing,
+verification or canonical-ID collaborators; retain the original profile and all
+referenced envelope/fingerprint/request keys for recovery. Scalar send settings,
+including expiry, recipient/version and delivery policy, are also authenticated
+and bound to initiating intent. Correlation changes do not rewrite the original.
+
+Install the kernel's `RequestKeyMigrationSource`,
+`RequestKeyPreparationMigrationSource` and later optional
+`RequestKeyExpiryMigrationSource` before selecting this facade, preserving the
+installed history/checksums and using an unused successor version. The expiry
+upgrade alters the existing global command-ID claim and installs irreversible
+fence triggers; it is not a second outcome store. Its table lock/check validation
+can scan existing claims: use the migration owner's bounded deployment window
+and roll forward on failure. Do not enable the API before that migration. The
+native invitation/capability/delivery and other selected owner migrations remain
+required as described below.
+
+Only the invocation retaining the acknowledged winning mapping and its genuine
+private original session preparation can execute. Concurrent missing-key callers
+may prepare discarded code-free candidates; they cannot charge risk, sign, queue
+delivery or mutate domain state during mapping. Authenticated encrypted custody
+retains complete original native feature fields, verified recipient and the
+earliest original session/invitation deadline, but no raw bearer, client key or
+invitation proof. Input plaintext is bounded to64KiB and never truncated. Matching
+keys/restarts only recover original metadata, under current genuine session,
+owner/membership and exact verified-recipient checks before and after disclosure
+callbacks. They never rebuild preparation, renew expiry or redeliver proof.
+
+Inspect `Receipt.Outcome`, including when an error is returned. A committed or
+aborted journal remains under the existing sole recovery owner. An original
+mapping with no claim remains **Unknown** before its immutable deadline. After
+primary-database expiry, the kernel may atomically install its exact irreversible
+global-ID refusal and return metadata-only **NotCommitted**. A competing existing
+claim is never retired or relabeled. Lost COMMIT acknowledgement remains Unknown
+until exact reconciliation. Neither outcome permits that ID/key to execute again;
+no automatic replacement key is allocated. Ordinary public `InvitationService`
+recovery still requires its genuine journal origin and cannot disclose this
+mapping-only refusal. This exception does not change other operation profiles'
+mapping-only Unknown contract.
+
 ## Optional direct organization operations
 
 `NewOperationService` borrows an existing genuine native `Service`; it directly

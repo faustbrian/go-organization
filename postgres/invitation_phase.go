@@ -382,11 +382,17 @@ func (p *invitationPhase) Recover(ctx context.Context, id identity.CommandID) (o
 }
 
 func (p *invitationPhase) RecoverParticipant(ctx context.Context, w kernel.RecoveryWork) (kernel.RecoveryStatus, error) {
-	b, f, l, err := w.FeatureScope(p)
+	return recoverInvitationParticipant(ctx, w, p, p.input.Organization.ID)
+}
+
+// Recovery's instance guard belongs to the registered participant, including a
+// request-custody facade. The negative evidence still has this one native owner.
+func recoverInvitationParticipant(ctx context.Context, w kernel.RecoveryWork, owner kernel.FeatureExecutionContributor, organizationID organization.ID) (kernel.RecoveryStatus, error) {
+	b, f, l, err := w.FeatureScope(owner)
 	if err != nil {
 		return kernel.RecoveryUnknown, err
 	}
-	if f.Contributor != p.Descriptor() {
+	if f.Contributor != owner.Descriptor() {
 		return kernel.RecoveryUnknown, identity.InvalidInputError{Field: "invitation"}
 	}
 	rows, err := w.Query(ctx, `SELECT tenant_id,organization_id,invitation_id,user_id,actor_id,operation,before_version::text,after_version::text FROM organization.command_effects WHERE command_id=$1`, string(b.CommandID))
@@ -410,7 +416,7 @@ func (p *invitationPhase) RecoverParticipant(ctx context.Context, w kernel.Recov
 	if err = rows.Err(); err != nil {
 		return kernel.RecoveryUnknown, err
 	}
-	if tenant != string(b.TenantID) || org != string(p.input.Organization.ID) || invite != b.RecordID || user != string(b.UserID) || actor != string(b.ActorID) || op != b.OperationID || before != strconv.FormatUint(l.BeforeVersion, 10) || after != strconv.FormatUint(l.AfterVersion, 10) {
+	if tenant != string(b.TenantID) || org != string(organizationID) || invite != b.RecordID || user != string(b.UserID) || actor != string(b.ActorID) || op != b.OperationID || before != strconv.FormatUint(l.BeforeVersion, 10) || after != strconv.FormatUint(l.AfterVersion, 10) {
 		return kernel.RecoveryUnknown, identity.UnavailableError{}
 	}
 	return kernel.RecoveryCommitted, nil

@@ -54,30 +54,11 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	if a.TenantID != b.TenantID {
 		return organization.StoreResult{}, organization.ErrForbidden
 	}
-	token, err := session.ParseToken(a.Bearer.Token())
+	observed, credential, err := s.observeInvitationRecovery(bounded, a, b.ActorID)
 	if err != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
+		return organization.StoreResult{}, err
 	}
-	credential, err := session.NewCredential(session.CredentialBearer, token)
-	if err != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
-	}
-	observed, err := s.config.Sessions.Get(bounded, session.GetRequest{TenantID: a.TenantID, Credential: credential})
-	if err != nil {
-		return organization.StoreResult{}, storageError(bounded, err)
-	}
-	if observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
-	}
-	actor, err := observed.Session.Bindings()
-	if err != nil || actor.UserID != identity.UserID(b.ActorID) || actor.TenantID != b.TenantID {
-		return organization.StoreResult{}, organization.ErrForbidden
-	}
-	actorBinding := b
-	actorBinding.UserID = actor.UserID
-	if _, _, _, err = sessionpg.OriginalSessionAdmission(s.actor.config.Profile, observed.Session, actorBinding); err != nil {
-		return organization.StoreResult{}, organization.ErrForbidden
-	}
+	actor, _ := observed.Session.Bindings()
 	var version uint64
 	var cancellation *recoveryInput
 	var rejection *organization.InvitationSnapshot
@@ -141,14 +122,11 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 		if queryErr != nil && record.Outcome != identity.CommitOutcomeNotCommitted {
 			return organization.StoreResult{}, invitationPublicError(queryErr)
 		}
-		v, err := s.core.Get(bounded, organization.ReadRequest{Authentication: a, OrganizationID: x.Organization.ID, CorrelationID: b.CorrelationID})
+		current, err := s.invitationSendRecoveryMember(bounded, a, b, x.Organization.ID, observed, credential)
 		if err != nil {
 			return organization.StoreResult{}, err
 		}
-		if v.Actor.Role != organization.RoleOwner {
-			return organization.StoreResult{}, organization.ErrForbidden
-		}
-		version = v.Organization.Version
+		version = current.organization.Version
 	} else {
 		// Acceptance always selects an existing issued invitation. Retain its
 		// owning row/recipient comparison independently of historical metadata.
@@ -221,6 +199,110 @@ func (s *InvitationService) Recover(ctx context.Context, a organization.Authenti
 	}
 	return p.result(receipt), invitationPublicError(err)
 }
+
+// Only genuine current session custody is observed here. Reusing this native
+// fence does not reconstruct the original private GetResult or renew execution.
+func (s *InvitationService) observeInvitationRecovery(ctx context.Context, a organization.Authentication, actor identity.ActorID) (session.GetResult, session.Credential, error) {
+	token, err := session.ParseToken(a.Bearer.Token())
+	if err != nil {
+		return session.GetResult{}, session.Credential{}, organization.ErrForbidden
+	}
+	credential, err := session.NewCredential(session.CredentialBearer, token)
+	if err != nil {
+		return session.GetResult{}, session.Credential{}, organization.ErrForbidden
+	}
+	observed, err := s.config.Sessions.Get(ctx, session.GetRequest{TenantID: a.TenantID, Credential: credential})
+	if err != nil {
+		return session.GetResult{}, session.Credential{}, storageError(ctx, err)
+	}
+	if observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
+		return session.GetResult{}, session.Credential{}, organization.ErrForbidden
+	}
+	b, err := observed.Session.Bindings()
+	if err != nil || b.TenantID != a.TenantID || actor != "" && identity.ActorID(b.UserID) != actor {
+		return session.GetResult{}, session.Credential{}, organization.ErrForbidden
+	}
+	actorBinding := identity.CommandBinding{TenantID: b.TenantID, UserID: b.UserID, ActorID: identity.ActorID(b.UserID), ActorKind: authorization.SubjectUser}
+	if _, _, _, err := sessionpg.OriginalSessionAdmission(s.actor.config.Profile, observed.Session, actorBinding); err != nil {
+		return session.GetResult{}, session.Credential{}, organization.ErrForbidden
+	}
+	return observed, credential, nil
+}
+
+func (s *InvitationService) invitationSendRecoveryMember(ctx context.Context, a organization.Authentication, b identity.CommandBinding, org organization.ID, observed session.GetResult, credential session.Credential) (*recoveryInput, error) {
+	v, err := s.core.Get(ctx, organization.ReadRequest{Authentication: a, OrganizationID: org, CorrelationID: b.CorrelationID})
+	if err != nil {
+		return nil, err
+	}
+	if v.Actor.Role != organization.RoleOwner {
+		return nil, organization.ErrForbidden
+	}
+	b.RecordID = string(v.Organization.ID)
+	return &recoveryInput{binding: b, observed: observed, credential: credential, organization: v.Organization, member: v.Actor}, nil
+}
+
+// Exact mapped-origin custody is independent of the public generic Recover's
+// journal declaration. Only the authenticated mapping decoder can select this
+// path; mapping itself remains correlation, never outcome/execution authority.
+func (s *InvitationService) recoverMappedInvitationSend(ctx context.Context, a organization.Authentication, owner *invitationOperationInvocation, original invitationOperationInput) (organization.StoreResult, error) {
+	b := original.Spec.Binding
+	if a.TenantID != b.TenantID {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
+	observed, credential, err := s.observeInvitationRecovery(ctx, a, b.ActorID)
+	if err != nil {
+		return organization.StoreResult{}, err
+	}
+	current, err := s.invitationSendRecoveryMember(ctx, a, b, original.OrganizationID, observed, credential)
+	if err != nil {
+		return organization.StoreResult{}, err
+	}
+	recipient, err := s.repository.resolveRecipient(ctx, b.TenantID, b.UserID, original.RecipientIdentifier.ID)
+	if err != nil {
+		return organization.StoreResult{}, err
+	}
+	if recipient.User != original.RecipientUser || recipient.Identifier != original.RecipientIdentifier {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
+	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Core.PolicyVersion), CorrelationID: b.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(b.TenantID), Subject: authorization.Subject{Kind: b.ActorKind, ID: authorization.SubjectID(b.ActorID)}, Action: authorization.Action(b.OperationID), Resource: authorization.Resource{Type: "organization", ID: authorization.ResourceID(original.OrganizationID), Attributes: authorization.Attributes{"organization.policy-version": authorization.StringValue(strconv.FormatUint(current.organization.Version, 10))}}, Environment: authorization.Environment{Time: s.config.Core.Clock.Now()}}}
+	decision, err := s.config.Authorization.Decide(ctx, caller)
+	if err != nil {
+		return organization.StoreResult{}, organization.ErrUnavailable
+	}
+	if decision.Outcome != authorization.Allow || decision.Revision != caller.PolicyRevision {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
+	caller.Request.Resource = authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(b.UserID)}
+	query := identity.RecoveryQuery{CommandID: b.CommandID, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
+	owner.recoveryOrganization = original.OrganizationID
+	receipt, recoverErr := owner.coordinator.ExpirePreparedFeatureCommand(ctx, query, caller, owner.registration(), owner)
+	// Current disclosure callbacks are not leases. Reuse the actual membership
+	// and session owner's final fences, then re-read the exact verified recipient.
+	native := Service{participant: s.actor, config: ServiceConfig{Core: s.config.Core, Sessions: s.config.Sessions}}
+	if err := native.revalidateRecovery(ctx, current); err != nil {
+		return organization.StoreResult{}, err
+	}
+	final, err := s.repository.resolveRecipient(ctx, b.TenantID, b.UserID, original.RecipientIdentifier.ID)
+	if err != nil {
+		return organization.StoreResult{}, err
+	}
+	if final.User != recipient.User || final.Identifier != recipient.Identifier || final.Verification != recipient.Verification || final.UserAuthorityVersion != recipient.UserAuthorityVersion || final.IdentifierAuthorityVersion != recipient.IdentifierAuthorityVersion || final.CredentialAuthorityVersion != recipient.CredentialAuthorityVersion || observed.ValidateAt(s.config.Core.Clock.Now()) != nil {
+		return organization.StoreResult{}, organization.ErrForbidden
+	}
+	if ctx.Err() != nil {
+		return organization.StoreResult{}, ctx.Err()
+	}
+	if receipt.Binding != b {
+		if recoverErr != nil && receipt.Binding == (identity.CommandBinding{}) {
+			return organization.StoreResult{}, invitationPublicError(recoverErr)
+		}
+		return organization.StoreResult{}, organization.ErrUnavailable
+	}
+	out := invitationOperationCorrelation(original)
+	out.Receipt = receipt
+	return out, invitationPublicError(recoverErr)
+}
+
 func (s *InvitationService) recoverPrepared(ctx context.Context, p *invitationPhase) (organization.StoreResult, error) {
 	if p.input.Session.ValidateAt(s.config.Core.Clock.Now()) != nil {
 		return organization.StoreResult{}, organization.ErrForbidden

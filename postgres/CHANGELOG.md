@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add opt-in `InvitationOperationService.Send` for original-key invitation send
+  without caller-allocated IDs. Reuse native invitation, risk, capability,
+  encrypted-delivery and lifecycle owners; matching retries recover only original
+  metadata under current owner/session and exact verified-recipient authority.
+  Changed request, expiry or delivery intent conflicts, and retries never renew
+  preparation or redisclose proof. Existing explicit send/accept APIs are unchanged.
+  Install the published kernel's optional `RequestKeyExpiryMigrationSource` before
+  selection: an unclaimed mapped original remains Unknown until its authenticated
+  original deadline, then may receive an irreversible global-ID refusal and
+  metadata-only NotCommitted. Existing live claims retain sole journal recovery;
+  generic recovery privacy remains unchanged. Retain original configuration/keys.
+
 - Add keyed `OperationService.Update` for bounded name/slug replacement at an
   exact organization version, using existing native metadata, protected-risk,
   audit, lifecycle and journal owners. Matching retries retain the original
