@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add non-consuming syntax validation and neutral admission/recovery custody for
+  once-only invitation acceptance. A transport gate receives authenticated
+  original challenge metadata before native execution; explicit recovery retains
+  the full original binding and current authentication. No request key, proof
+  redisclosure, bare-ID lookup or HTTP route is introduced; existing explicit
+  preparation/execution APIs remain unchanged.
+
 - Add keyed `UpdateMemberOperationRequest` for static member-role replacement at
   exact organization/member versions, including owner transitions and original
   outcome recovery syntax. Credentials and initiating keys remain opaque,

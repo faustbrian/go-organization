@@ -39,6 +39,19 @@ only that original outcome; an unknown outcome cannot authorize another send.
 There is no submitted address, caller role or proof in this request. Existing
 explicit `InvitationSendRequest` and native acceptance contracts are unchanged.
 
+`InvitationAcceptRequest` remains **once**, not keyed: callers retain their
+original `CommandID`, exact organization/invitation versions and privately held
+proof. Its `Validate` checks bounded syntax without consuming proof or granting
+membership. `InvitationAcceptAdmitter` is an additional synchronous transport
+gate after native preparation, before execution of that same preparation. It
+receives authenticated original capability ID/lifetime and safe command binding,
+not proof bytes; success never replaces native current-recipient/final checks.
+`InvitationAcceptRecoveryRequest` selects only direct original acceptance history
+with current authentication, the full saved binding and owning organization.
+It contains no proof/key and never resubmits. Bare-ID recovery after losing the
+entire response and a separate HTTP recovery route are not selected. These
+neutral contracts alone do not enable native execution or an HTTP endpoint.
+
 > **Status: experimental.** Explicit-organization membership and the selected
 > existing-recipient invitation, opt-in team-membership and domain-reservation
 > profiles are implemented. This is not a
