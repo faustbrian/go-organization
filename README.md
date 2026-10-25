@@ -25,6 +25,14 @@ Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
 are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
 
+`InvitationSendOperationRequest` selects one existing verified recipient by user
+and identifier ID, the exact organization/version, and one required initiating
+key. The durable native owner allocates command and invitation IDs and retains
+the original member role, deadline and delivery policy. Matching retries recover
+only that original outcome; an unknown outcome cannot authorize another send.
+There is no submitted address, caller role or proof in this request. Existing
+explicit `InvitationSendRequest` and native acceptance contracts are unchanged.
+
 > **Status: experimental.** Explicit-organization membership and the selected
 > existing-recipient invitation, opt-in team-membership and domain-reservation
 > profiles are implemented. This is not a

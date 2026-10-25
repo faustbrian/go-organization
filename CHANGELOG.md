@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add `InvitationSendOperationRequest` for original-key invitation send without
+  caller-allocated command/invitation IDs or submitted addresses. Matching retries
+  retain original recipient/version intent and cannot renew authority or proof;
+  existing explicit preparation and acceptance contracts remain unchanged.
+
 - Add keyed `UpdateOperationRequest` for bounded name/slug replacement with an
   exact organization version, plus original Update outcome recovery syntax.
   Credentials and the required key remain non-serializable custody; existing
