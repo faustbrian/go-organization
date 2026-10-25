@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add keyed `UpdateOperationRequest` for bounded name/slug replacement with an
+  exact organization version, plus original Update outcome recovery syntax.
+  Credentials and the required key remain non-serializable custody; existing
+  `UpdateRequest` and preparation APIs are unchanged. These contracts do not
+  enable a durable operation or HTTP route by themselves.
+
 - Add transport-neutral operation requests for keyed organization creation and
   member admission, naturally repeatable exact-version member removal, and
   current-authorized original-outcome recovery. Syntax validation is bounded

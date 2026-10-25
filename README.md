@@ -2,7 +2,8 @@
 
 ## Transport-neutral direct-operation requests
 
-`CreateOperationRequest` and `AddMemberOperationRequest` carry one required
+`CreateOperationRequest`, `UpdateOperationRequest` and
+`AddMemberOperationRequest` carry one required
 `identity.IdempotencyKey`; `RemoveMemberOperationRequest` is a non-keyed,
 exact-version repeat operation. The durable operation owner allocates command
 IDs and create IDs, retains original request correlation, and distinguishes
@@ -15,7 +16,13 @@ authentication; it grants no permission to resubmit or disclose the operation.
 Every request's `Validate` checks syntax and custody presence only, without IO
 or authentication. These direct request types reject implicit JSON/text export;
 HTTP integrations own separate bounded wire schemas and credential acquisition.
-Existing `CreateRequest`, `MemberRequest` and `Prepare*` APIs are unchanged.
+Metadata replacement retains `UpdateRequest`'s bounded name/slug and exact
+expected organization version. A matching Update key recovers only its original
+command; changed metadata, organization or version conflicts, and an unknown
+outcome grants no permission to execute again. Current authority is still
+required to disclose its original outcome.
+Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
+are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
 
 > **Status: experimental.** Explicit-organization membership and the selected

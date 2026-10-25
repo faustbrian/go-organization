@@ -20,6 +20,21 @@ type CreateOperationRequest struct {
 	Name, Slug, CorrelationID string
 }
 
+// UpdateOperationRequest is the transport-neutral keyed metadata replacement.
+// Name, Slug and the exact expected OrganizationVersion retain UpdateRequest's
+// semantics. The durable owner allocates the command ID; matching retries recover
+// that original command without refreshing its authority, version or deadlines.
+// Changed intent conflicts, including a changed organization or expected version.
+// Authentication and the single required key are borrowed opaque custody; syntax
+// validation does not authorize an update or establish a committed outcome.
+type UpdateOperationRequest struct {
+	Authentication            Authentication
+	IdempotencyKey            identity.IdempotencyKey
+	OrganizationID            ID
+	OrganizationVersion       uint64
+	Name, Slug, CorrelationID string
+}
+
 // AddMemberOperationRequest is the transport-neutral keyed membership admission.
 // Expected versions and role have MemberRequest's semantics. A retry preserves
 // the original key and intent; it does not obtain a fresh authority observation
@@ -66,6 +81,15 @@ func (r CreateOperationRequest) Validate() error {
 	return nil
 }
 
+// Validate checks bounded metadata, exact-version syntax and custody presence
+// without IO, authentication, authorization, key admission or command allocation.
+func (r UpdateOperationRequest) Validate() error {
+	if !validOperationAuthentication(r.Authentication, r.CorrelationID) || r.IdempotencyKey == (identity.IdempotencyKey{}) || !safeID(string(r.OrganizationID)) || !validOperationVersions(r.OrganizationVersion, 0) || !boundedText(r.Name, 256) || !validSlug(r.Slug) {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
 // Validate checks bounded syntax; it does not prove current membership,
 // authority, expected versions or durable outcome.
 func (r AddMemberOperationRequest) Validate() error {
@@ -88,7 +112,7 @@ func (r RemoveMemberOperationRequest) Validate() error {
 // A structurally valid binding still confers no disclosure permission.
 func (r OperationRecoveryRequest) Validate() error {
 	op := Operation(r.Binding.OperationID)
-	if op != Create && op != AddMember && op != RemoveMember || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
+	if op != Create && op != Update && op != AddMember && op != RemoveMember || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
 		return ErrInvalidInput
 	}
 	return nil
@@ -116,6 +140,17 @@ func (CreateOperationRequest) MarshalJSON() ([]byte, error) { return nil, ErrSen
 
 // MarshalText rejects implicit text and map-key export of direct custody.
 func (CreateOperationRequest) MarshalText() ([]byte, error) { return nil, ErrSensitiveSerialization }
+
+// Format redacts credentials, keys and metadata from diagnostics.
+func (UpdateOperationRequest) Format(s fmt.State, _ rune) {
+	_, _ = s.Write([]byte("organization.UpdateOperationRequest(redacted)"))
+}
+
+// MarshalJSON rejects accidental transport/persistence of direct custody.
+func (UpdateOperationRequest) MarshalJSON() ([]byte, error) { return nil, ErrSensitiveSerialization }
+
+// MarshalText rejects implicit text and map-key export of direct custody.
+func (UpdateOperationRequest) MarshalText() ([]byte, error) { return nil, ErrSensitiveSerialization }
 
 // Format redacts credentials, keys and request values from diagnostics.
 func (AddMemberOperationRequest) Format(s fmt.State, _ rune) {

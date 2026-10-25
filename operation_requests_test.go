@@ -88,6 +88,7 @@ func TestDirectOperationRequestsDoNotSerializeCustody(t *testing.T) {
 	auth := organization.Authentication{TenantID: "tenant", Bearer: authentication.NewBearerCredential("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}
 	for _, r := range []any{
 		organization.CreateOperationRequest{Authentication: auth, IdempotencyKey: key, Name: "private-name"},
+		organization.UpdateOperationRequest{Authentication: auth, IdempotencyKey: key, Name: "private-name"},
 		organization.AddMemberOperationRequest{Authentication: auth, IdempotencyKey: key},
 		organization.RemoveMemberOperationRequest{Authentication: auth},
 		organization.OperationRecoveryRequest{Authentication: auth},
@@ -104,6 +105,125 @@ func TestDirectOperationRequestsDoNotSerializeCustody(t *testing.T) {
 			t.Fatal("custody serialized as text")
 		}
 	}
+}
+
+func TestUpdateOperationRequestRetainsKeyedMetadataCustody(t *testing.T) {
+	key, err := identity.NewIdempotencyKey([]byte("original-organization-update"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := organization.UpdateOperationRequest{
+		Authentication: organization.Authentication{TenantID: "tenant", Bearer: authentication.NewBearerCredential("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")},
+		IdempotencyKey: key, OrganizationID: "organization", OrganizationVersion: 1,
+		Name: "New name", Slug: "new-slug", CorrelationID: "update",
+	}
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	maximum := r
+	maximum.Authentication.TenantID = identity.TenantID(strings.Repeat("t", 128))
+	maximum.OrganizationID = organization.ID(strings.Repeat("o", 128))
+	maximum.OrganizationVersion = ^uint64(0) - 1
+	maximum.Name, maximum.Slug, maximum.CorrelationID = strings.Repeat("n", 256), strings.Repeat("s", 63), strings.Repeat("c", 128)
+	if err := maximum.Validate(); err != nil {
+		t.Fatalf("valid maximum rejected: %v", err)
+	}
+	for name, change := range map[string]func(*organization.UpdateOperationRequest){
+		"missing key":          func(r *organization.UpdateOperationRequest) { r.IdempotencyKey = identity.IdempotencyKey{} },
+		"missing organization": func(r *organization.UpdateOperationRequest) { r.OrganizationID = "" },
+		"long organization": func(r *organization.UpdateOperationRequest) {
+			r.OrganizationID = organization.ID(strings.Repeat("o", 129))
+		},
+		"organization whitespace": func(r *organization.UpdateOperationRequest) { r.OrganizationID = "other organization" },
+		"missing version":         func(r *organization.UpdateOperationRequest) { r.OrganizationVersion = 0 },
+		"overflow version":        func(r *organization.UpdateOperationRequest) { r.OrganizationVersion = ^uint64(0) },
+		"missing name":            func(r *organization.UpdateOperationRequest) { r.Name = "" },
+		"long name":               func(r *organization.UpdateOperationRequest) { r.Name = strings.Repeat("n", 257) },
+		"untrimmed name":          func(r *organization.UpdateOperationRequest) { r.Name = " name" },
+		"control name":            func(r *organization.UpdateOperationRequest) { r.Name = "name\nsecret" },
+		"invalid utf8":            func(r *organization.UpdateOperationRequest) { r.Name = "\xff" },
+		"missing slug":            func(r *organization.UpdateOperationRequest) { r.Slug = "" },
+		"long slug":               func(r *organization.UpdateOperationRequest) { r.Slug = strings.Repeat("s", 64) },
+		"uppercase slug":          func(r *organization.UpdateOperationRequest) { r.Slug = "New-Slug" },
+		"leading dash":            func(r *organization.UpdateOperationRequest) { r.Slug = "-slug" },
+		"trailing dash":           func(r *organization.UpdateOperationRequest) { r.Slug = "slug-" },
+		"invalid bearer": func(r *organization.UpdateOperationRequest) {
+			r.Authentication.Bearer = authentication.NewBearerCredential("bad")
+		},
+		"missing tenant": func(r *organization.UpdateOperationRequest) { r.Authentication.TenantID = "" },
+		"long tenant": func(r *organization.UpdateOperationRequest) {
+			r.Authentication.TenantID = identity.TenantID(strings.Repeat("t", 129))
+		},
+		"missing correlation": func(r *organization.UpdateOperationRequest) { r.CorrelationID = "" },
+		"long correlation":    func(r *organization.UpdateOperationRequest) { r.CorrelationID = strings.Repeat("c", 129) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := r
+			change(&changed)
+			if !errors.Is(changed.Validate(), organization.ErrInvalidInput) {
+				t.Fatal("invalid keyed metadata request accepted")
+			}
+		})
+	}
+}
+
+func TestUpdateOperationRecoveryRetainsOriginalBinding(t *testing.T) {
+	r := organization.OperationRecoveryRequest{
+		Authentication: organization.Authentication{TenantID: "tenant", Bearer: authentication.NewBearerCredential("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")},
+		Binding:        identity.CommandBinding{CommandID: "AAAAAAAAAAAAAAAAAAAAAQ", TenantID: "tenant", UserID: "owner", ActorID: "owner", ActorKind: authorization.SubjectUser, OperationID: string(organization.Update), RecordID: "org", PolicyID: "organizations", PolicyVersion: 1, SchemaID: "organization-membership", SchemaVersion: 1, CorrelationID: "update"},
+	}
+	if err := r.Validate(); err != nil {
+		t.Fatalf("original metadata recovery rejected: %v", err)
+	}
+	r.Authentication.TenantID = "other"
+	if !errors.Is(r.Validate(), organization.ErrInvalidInput) {
+		t.Fatal("foreign metadata recovery accepted")
+	}
+}
+
+func FuzzUpdateOperationRequestValidation(f *testing.F) {
+	for _, value := range []string{"name", "", "\x00", "\xff", " name", "NAME", "slug-", strings.Repeat("a", 63), strings.Repeat("a", 64), strings.Repeat("a", 128), strings.Repeat("a", 129), strings.Repeat("a", 256), strings.Repeat("a", 257)} {
+		f.Add(value, uint64(1), uint8(0))
+	}
+	f.Add("name", ^uint64(0), uint8(63))
+	f.Fuzz(func(t *testing.T, value string, version uint64, mode uint8) {
+		if len(value) > 4096 {
+			return
+		}
+		key, err := identity.NewIdempotencyKey([]byte("synthetic-fuzz-update"))
+		if err != nil {
+			t.Fatal("fuzz key construction failed")
+		}
+		r := organization.UpdateOperationRequest{Authentication: organization.Authentication{TenantID: "tenant", Bearer: authentication.NewBearerCredential("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}, IdempotencyKey: key, OrganizationID: "organization", OrganizationVersion: version, Name: value, Slug: "slug", CorrelationID: "update"}
+		if mode&1 != 0 {
+			r.Slug = value
+		}
+		if mode&2 != 0 {
+			r.OrganizationID = organization.ID(value)
+		}
+		if mode&4 != 0 {
+			r.CorrelationID = value
+		}
+		if mode&8 != 0 {
+			r.Authentication.TenantID = identity.TenantID(value)
+		}
+		if mode&16 != 0 {
+			r.Authentication.Bearer = authentication.NewBearerCredential(value)
+		}
+		if mode&32 != 0 {
+			r.IdempotencyKey = identity.IdempotencyKey{}
+		}
+		err = r.Validate()
+		if err != nil && !errors.Is(err, organization.ErrInvalidInput) {
+			t.Fatal("unclassified validation error")
+		}
+		if err == nil && (r.IdempotencyKey == (identity.IdempotencyKey{}) || version == 0 || version == ^uint64(0) || len(value) == 0 || len(value) > 256 || !utf8.ValidString(value) || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\n\r\t\x7f")) {
+			t.Fatal("accepted hostile metadata, missing key or invalid version")
+		}
+		if err == nil && ((mode&1 != 0 && len(value) > 63) || (mode&14 != 0 && len(value) > 128)) {
+			t.Fatal("accepted oversized scope")
+		}
+	})
 }
 
 func TestOperationRecoveryRequestRetainsOriginalScope(t *testing.T) {
@@ -187,7 +307,7 @@ func FuzzDirectOperationRequestValidation(f *testing.F) {
 		if remove.Validate() == nil && (orgVersion == 0 || orgVersion == ^uint64(0) || memberVersion == 0 || memberVersion == ^uint64(0) || len(value) > 128 || !utf8.ValidString(value)) {
 			t.Fatal("remove accepted invalid version or scope")
 		}
-		if recovery.Validate() == nil && (binding.TenantID != auth.TenantID || binding.OperationID != string(organization.Create) && binding.OperationID != string(organization.AddMember) && binding.OperationID != string(organization.RemoveMember)) {
+		if recovery.Validate() == nil && (binding.TenantID != auth.TenantID || binding.OperationID != string(organization.Create) && binding.OperationID != string(organization.AddMember) && binding.OperationID != string(organization.RemoveMember) && binding.OperationID != string(organization.Update)) {
 			t.Fatal("recovery accepted foreign scope or unselected operation")
 		}
 	})
