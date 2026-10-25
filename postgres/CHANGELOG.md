@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Document and exercise optional published bearer-only organization HTTP
+  composition against the actual native owner and PostgreSQL atomic admission,
+  including original-command retries and current-session denial. HTTP routes
+  remain explicitly selected; native production code does not import the leaf.
+
 - Add opt-in direct keyed create/member admission and non-keyed repeat removal
   on the existing native owner, with original encrypted correlation, current
   recovery authority and last-owner protection. Existing preparation APIs are

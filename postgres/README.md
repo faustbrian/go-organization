@@ -575,6 +575,25 @@ Run it with `go test -tags integration -run TestOrganizationGenuinePasswordConsu
 This remains the finite single-factor password profile, not full platform
 qualification or proof of unselected authentication/session profiles.
 
+`TestOrganizationGenuineHTTPConsumer` adds the published optional
+`go-identity/http/organization` leaf over the actual `OperationService`, without
+an application adapter. Two users take the same genuine public Reference
+signup/verification/sign-in path, then use their issued opaque sessions as
+strict Authorization bearers over HTTPS. The selected feature supplies only
+create/get/member-list/add/remove; omission supplies no routes or OpenAPI paths.
+The case checks original keyed retries, changed-intent conflict, exact non-keyed
+repeat removal, last-owner denial and current revoked-session denial. Each
+successful HTTP result is matched against fresh native original recovery and
+its real journal, domain effect, protected audit and lifecycle outbox rows.
+Administrative admission uses the genuine PostgreSQL strict atomic backend and
+native atomic schema; keyed retries still consume distinct HTTP debit records.
+Actual responses are validated against the selected structured OpenAPI schemas.
+Run this bounded case with
+`go test -tags=integration -run '^TestOrganizationGenuineHTTPConsumer$' .`
+against the same task-owned-cluster requirement above. This is public leaf/native
+consumer proof, not Reference startup composition, browser/active-selection
+support, invitations, teams or complete identity-platform qualification.
+
 Root and adapter are independently releasable experimental modules. Public pins
 must refer to published commits; permanent local replacements are unsupported.
 See the [root API/exclusions](../README.md), [security](../docs/security.md) and
