@@ -35,6 +35,7 @@ type invitationPhase struct {
 	applied       bool
 	naturalCancel bool
 	naturalReject bool
+	naturalExpire bool
 }
 
 var _ kernel.OrganizationInvitationIssuanceContributor = (*invitationPhase)(nil)

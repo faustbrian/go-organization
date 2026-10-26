@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add natural-repeat `InvitationService.Expire` for exact invitation/organization
+  versions and the existing registered reason allowlist, with internally owned
+  command identity. Matching repeats recover only actual original receipts under
+  current original-manager/session authority; changed reason/epoch conflicts and
+  unknown outcomes never execute again. Install the optional additive
+  `InvitationExpireOperationMigrationSource` first for nullable atomic correlation
+  and a partial unique existing-effect index, using a bounded write-blocking
+  operator window. Legacy effects are not backfilled; raw explicit expiry remains
+  compatible without this migration. No new journal or HTTP route is enabled.
+
 - Add original-key `OperationService.OwnerTransfer` over the existing native
   owner-transfer and password-proof workflow. Exact organization and both
   membership versions, current owner/session/factor authority and protected

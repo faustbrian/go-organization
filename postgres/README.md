@@ -623,6 +623,35 @@ redelivers or creates a new journal.
 
 ### Explicit invitation expiry
 
+`InvitationService.Expire(ctx, organization.InvitationExpireOperationRequest,
+trustedCanonicalClientIP)` initiates **natural-repeat** expiry with an internally
+allocated command. It binds exact invitation/organization IDs and versions and
+the original `InvitationConfig.ExpirationReasons` allowlist; there is no key,
+caller command ID, arbitrary reason policy or recipient proof. Empty reason
+configuration still disables expiry. Correlation is diagnostic, not intent.
+
+Before enabling this wrapper, install the independent additive
+`InvitationExpireOperationMigrationSource` after the selected invitation
+migrations at an unused permanent version. It adds nullable original organization
+epoch/reason fields to the existing atomic command effect and a partial unique
+index on tenant, organization, invitation and original invitation version. This
+is not a separate receipt journal. Raw `PrepareExpire`/`Execute` remains compatible
+without the optional wrapper migration; legacy effects remain NULL and cannot
+be backfilled from current terminal state. The transactional build scans existing
+effects and blocks writes: use an explicit bounded maintenance window with
+transaction/lock timeouts and provision table/index/WAL headroom before activation.
+It retains one index entry per expiry, excludes unrelated operations and adds no
+new update path; row/key sizes and build exposure remain workload-dependent.
+
+Reconstructed matching requests return only the actual original committed
+receipt under the original actor's current manager/session authority. Changed
+registered reason or original organization epoch conflicts. A terminal row is
+not a receipt, and missing/legacy history fails closed. Historical disclosure
+rechecks current authority through the existing owner and never renews proof,
+creates another command effect or replays unknown work. An initial Unknown is
+returned immediately: retain its original binding and use `Recover`; natural
+syntax cannot discover an unattached/uncommitted original command.
+
 Install `InvitationExpiryMigrationSource` at an unused permanent version after
 the rejection migration. It preserves installed migration bytes, existing
 rows/custody and original natural deadlines. Earlier readers fail closed on
