@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add initiating natural-repeat `InvitationService.Reject` with owner-allocated
+  commands and exact original rejection metadata under current verified intended
+  recipient/session authority. No key, caller command ID, proof, membership or
+  manager/Get permission is required. Select the independent additive
+  `InvitationRejectOperationMigrationSource` for nullable original-epoch
+  correlation and a bounded existing-effect index; its transactional build needs
+  a bounded operator window. Legacy effects fail closed instead of inventing
+  historical matches, while raw explicit rejection remains compatible without
+  this optional migration. No new journal or HTTP route is introduced.
+
 - Add initiating natural-repeat `InvitationService.Cancel` with owner-allocated
   commands and exact original cancellation metadata under current manager and
   session authority. No key, caller command ID or recipient proof is required;

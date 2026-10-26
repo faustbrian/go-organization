@@ -178,6 +178,12 @@ func (p *invitationPhase) ApplyFeature(ctx context.Context, w kernel.Work, c ide
 		_, err = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,invitation_id,user_id,actor_id,operation,fingerprint,before_version,after_version,cancel_organization_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11::numeric)`, string(b.CommandID), string(b.TenantID), string(x.Organization.ID), b.RecordID, string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(i.Version, 10), strconv.FormatUint(i.Version+1, 10), strconv.FormatUint(x.Organization.Version, 10))
 		return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, err
 	}
+	if x.Operation == organization.InvitationReject && p.naturalReject {
+		// Preserve the exact original organization epoch with this existing
+		// effect. Raw explicit rejection does not select the optional schema.
+		_, err = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,invitation_id,user_id,actor_id,operation,fingerprint,before_version,after_version,reject_organization_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric,$11::numeric)`, string(b.CommandID), string(b.TenantID), string(x.Organization.ID), b.RecordID, string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(i.Version, 10), strconv.FormatUint(i.Version+1, 10), strconv.FormatUint(x.Organization.Version, 10))
+		return identity.FeatureReceipt{Operation: x.Operation.Descriptor(), BeforeVersion: i.Version, AfterVersion: i.Version + 1}, err
+	}
 	if _, err = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,invitation_id,user_id,actor_id,operation,fingerprint,before_version,after_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10::numeric)`, string(b.CommandID), string(b.TenantID), string(x.Organization.ID), b.RecordID, string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(i.Version, 10), strconv.FormatUint(i.Version+1, 10)); err != nil {
 		return identity.FeatureReceipt{}, err
 	}

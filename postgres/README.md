@@ -604,6 +604,34 @@ is needed. Terminal expiry does not restore authority after the natural deadline
 
 ### Recipient invitation rejection
 
+For initiating callers, `InvitationService.Reject(ctx,
+organization.InvitationRejectOperationRequest, trustedCanonicalClientIP)` accepts
+current bearer authentication and exact organization/invitation IDs and versions.
+This is a **natural repeat**, with no key, caller command ID or invitation proof.
+Only the current verified intended recipient may initiate or retrieve its
+original outcome. Organization membership, manager permission and unrelated
+Get permission are not required and cannot substitute for recipient authority.
+
+Install `InvitationRejectOperationMigrationSource` at an unused permanent version
+after the selected invitation migrations before enabling `Reject`. It adds
+nullable original organization-version correlation and a bounded partial unique
+index to existing rejection effects, not a new journal. The optional cancellation
+operation migration is independent and is not required. The transactional build
+blocks writes; select a bounded operator maintenance window with configured
+transaction/lock timeouts. Legacy effects remain NULL; no current organization
+epoch is fabricated as their original admission. Raw explicit rejection remains
+compatible without this optional migration.
+
+A reconstructed matching natural request, including a new diagnostic correlation,
+returns only the actual original committed binding, transition and audit metadata
+for that recipient. Exact original versions and current verified recipient,
+session, organization and disclosure authority remain mandatory. A rejected or
+absent row is not success, and legacy NULL correlation fails closed. Historical
+lookup neither executes again nor consumes another risk counter, capability or
+outbox effect. An initial Unknown returns immediately without redispatch: retain
+its receipt binding and use existing `Recover`. The committed-effect lookup
+cannot identify an unattached/uncommitted original from request syntax alone.
+
 Install `InvitationRejectionMigrationSource` at an unused permanent version after
 the cancellation migration before enabling `InvitationService.PrepareReject`.
 The additive schema preserves pending/accepted/cancelled rows; older binaries
