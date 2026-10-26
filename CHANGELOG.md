@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add neutral original-key team custom-role assignment and natural exact-binding
+  revocation requests without caller commands or human-target overrides. Exact
+  organization, role, team and binding epochs preserve existing raw bounds and
+  the shared team epoch. Existing role-operation recovery syntax already accepts
+  actual human self-actor bindings; validation does not grant permission or infer
+  success from missing bindings. Credential/key/intent export is denied. Raw APIs
+  remain unchanged; no durable workflow or HTTP/Reference route is enabled.
+
 - Add neutral original-key direct custom-role assignment and natural exact-binding
   revocation requests without caller commands. Exact organization, role, target,
   membership and binding intent retains raw version semantics; revocation requires
