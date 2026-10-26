@@ -1,5 +1,16 @@
 # Genuine organization PostgreSQL consumers
 
+`TestOrganizationGenuineDirectRoleBindingOperationConsumer` uses real signup,
+verification and password-issued sessions for original-key direct role assignment,
+actual target permissions, natural exact-binding revocation and fresh-session
+reconstructed history. It checks every immutable selector, query-denied changed
+intent, reassignment/readmission fencing, required audit/outbox rollback, actual
+mapping/domain COMMIT-response loss, initial contention before repair, late
+manager withdrawal and real SignOut. General organization reads remain denied.
+Two fresh database/signup cohorts preserve unchanged native risk limits. It
+consumes published owners, not a private binding, authority or receipt store;
+team-binding facades, HTTP/Reference and whole-M23 qualification remain excluded.
+
 `TestOrganizationGenuineDynamicRoleOperationConsumer` uses actual signup,
 verification and password sessions for original-key custom-role create/update,
 current role/list/permission reads and natural exact-version terminal deletion.
