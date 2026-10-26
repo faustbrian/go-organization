@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add a neutral natural-repeat invitation-rejection request without a client key,
+  caller command or invitation proof. Repetition requires actual original
+  metadata and current verified intended-recipient authority, not membership or
+  manager permission or success inferred from terminal state. Existing explicit
+  rejection APIs remain unchanged; this contract alone enables no durable
+  initiating workflow or HTTP route.
+
 - Add a neutral natural-repeat invitation-cancellation request without a client
   key, command or recipient proof. Repetition requires actual original metadata
   and current manager authority, never success inferred from a terminal row.

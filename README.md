@@ -75,6 +75,17 @@ native cancel bounds, and correlation is diagnostic rather than natural intent.
 Existing explicit cancellation APIs and `StoreResult` are unchanged. This neutral
 request alone enables no initiating execution or HTTP route.
 
+`InvitationRejectOperationRequest` selects an exact invitation/organization and
+their versions for natural-repeat rejection by the current verified intended
+recipient. It accepts no key, caller command ID or invitation proof; membership,
+manager authority and unrelated Get permission are not substitutes for recipient
+authority. The native owner must allocate the command and reconcile actual
+original metadata, never infer success from a rejected or absent row. Versions
+retain the existing native reject bounds, and correlation is diagnostic rather
+than natural intent. Credentials/selectors remain redacted and non-serializable.
+Existing explicit rejection APIs and `StoreResult` are unchanged; this neutral
+request alone enables no initiating execution or HTTP route.
+
 `InvitationAcceptRequest` remains **once**, not keyed: callers retain their
 original `CommandID`, exact organization/invitation versions and privately held
 proof. Its `Validate` checks bounded syntax without consuming proof or granting
