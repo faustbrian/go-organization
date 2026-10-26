@@ -41,6 +41,16 @@ These consumers prove their selected existing native profiles, not full M22,
 external lifecycle cascades or a stable organization release. See the
 [native adoption and security notes](../README.md).
 
+`TestOrganizationGenuineCreateTeamOperationConsumer` uses real signup,
+verification and password sessions to create one empty team with a chosen
+canonical ID through the public original-key operation. It covers original and
+fresh-session/reconstructed recovery, changed intent, current-manager/tenant
+denial, real quotas, rollback, mapping/domain COMMIT-response loss, contention
+and actual SignOut. It configures the actual native owners with a two-team quota;
+no credential rows, private authority, alternate journal or local replacement
+substitutes for the public workflow. Team membership and lifecycle remain
+separate profiles.
+
 `TestOrganizationGenuineInvitationRejectOperationConsumer` and the independent
 `TestOrganizationGenuineInvitationRejectWithdrawalConsumer` fixtures prove
 natural recipient rejection without membership or manager/read authority.

@@ -385,6 +385,14 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
+	if invitationProfile == "team-create-operation" {
+		logout, err := graph.features.Sessions()
+		if err != nil {
+			t.Fatal(err)
+		}
+		exerciseGenuineCreateTeams(t, ctx, pool, db, sessions, profile, lookup, owner, member, ownerID, memberID, keys, material, signinOwner, logout)
+		return
+	}
 	if invitationProfile == "owner-transfer-operation" {
 		policy, err := fixtureAuthorization()
 		if err != nil {
