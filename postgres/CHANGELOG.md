@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add explicit transactional variants of the operation-lookup and invitation
+  recipient-page index migrations for atomic migration-command composition.
+  They retain exact index semantics with distinct names/checksums; existing
+  concurrent migrations are unchanged. Select one variant before installation,
+  never replace installed history. Transactional builds block table writes and
+  require a bounded operator maintenance window and configured timeouts.
+
 - Isolate existing genuine Reference/HTTP consumers in the nested test-only
   `postgres/consumer` module, preserving their entrypoints, assertions and native
   fixture coverage. Remove test-only Reference/HTTP dependencies from the native

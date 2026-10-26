@@ -10,6 +10,24 @@ not depend on Reference or the organization HTTP leaf. Native-only fixtures and
 unit/integration tests remain here; the genuine consumers retain their existing
 entrypoints and assertions against normal published adapter pins.
 
+## Explicit transactional index migrations
+
+`OperationLookupTransactionalMigrationSource` and
+`InvitationRecipientIndexTransactionalMigrationSource` provide the same exact
+native indexes as their existing concurrent sources, but use a transaction and
+distinct `_transactional` migration names/checksums. Select one variant at the
+allocated permanent version before installation. Do not replace installed
+concurrent history or install both variants; index names are deliberately shared.
+Existing concurrent source definitions and checksums remain unchanged.
+
+Use these opt-in variants when the migration owner requires atomic transactional
+commands. Unlike `CREATE INDEX CONCURRENTLY`, a transactional index build blocks
+writes to its table until the transaction finishes. Operators must explicitly
+schedule a bounded maintenance window and configure transaction/lock timeouts;
+do not select these builds automatically during runtime DML. Both variants are
+forward-only and perform no IO when loaded. Their migration transaction and
+outcome/recovery remain the migration owner's responsibility.
+
 ## Once-only neutral invitation acceptance
 
 For transports with before-handler middleware, use
