@@ -60,6 +60,9 @@ type Contributor struct {
 	// Only the same isolated facade participant can decode its own retained
 	// ciphertext. Ordinary native contributors preserve generic recovery.
 	operationRestore func(context.Context, kernel.RequestKeyPreparationBinding, []byte) (identity.CommandBinding, error)
+	// Only an isolated natural-removal invocation selects optional exact-effect
+	// correlation. Ordinary explicit team commands keep their original INSERT.
+	naturalTeamRemove bool
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)

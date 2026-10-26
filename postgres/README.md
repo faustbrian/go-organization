@@ -1,5 +1,38 @@
 # go-organization/postgres
 
+## Original team-member admission and exact-binding removal
+
+`OperationService.AddTeamMember` accepts one original key and the exact
+organization, team, target organization-admission and retained team-binding
+versions. `RemoveTeamMember` naturally repeats that exact binding without a
+client key or command. Both use the existing native team transition, current
+manager/session authority and atomic organization/team/authorization epochs,
+audit and lifecycle effects. `ListMyTeams` and `ListTeamMembers` delegate actual
+current primary reads; organization removal/readmission never revives an older
+team binding.
+
+The direct team-member operations authorize their actual team-write action and
+original-outcome query policy; they do not additionally require organization-read
+permission. Session, manager membership and scoped authority are fenced after
+policy callbacks, including before classifying a changed natural selector.
+Existing raw `Service.Recover` retains its separate organization-read contract.
+
+Before enabling natural removal, install
+`TeamMemberOperationLookupMigrationSource` at an unused permanent version after
+the organization/team migrations. This optional forward migration adds nullable
+correlation to the existing effect record and a bounded partial unique index;
+it is not another journal. Its transactional index build blocks writes, so use
+a bounded operator maintenance window with lock/transaction timeouts. Legacy
+effects remain NULL and cannot establish a natural original; raw explicit team
+preparation/execution remains usable without the optional migration.
+
+Matching admission keys and removal selectors return only actual original
+receipts under current disclosure authority, including after reconstruction or
+fresh signin. Changed intent or a newer binding cannot adopt old success, and
+unknown results never authorize automatic execution. Retain the original
+binding for `RecoverOperation`; natural syntax cannot identify an unattached
+or uncommitted command. This native profile adds no HTTP or Reference feature.
+
 ## Original-key team creation
 
 `OperationService.CreateTeam(ctx, organization.CreateTeamOperationRequest,

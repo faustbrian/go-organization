@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add original-key team-member admission, natural exact-binding removal and
+  current own-team/member reads through `OperationService`, using the existing
+  native team/authority/audit/outbox owners. Matching retries recover original
+  receipts, not renewed execution; organization readmission cannot revive old
+  team bindings. Enable optional `TeamMemberOperationLookupMigrationSource`
+  before natural removal in a bounded write-blocking maintenance window. It
+  retains nullable exact selectors on existing effects without backfilling
+  legacy authority; raw explicit team APIs remain compatible without it.
+  Actual team-write and outcome-query policy apply without an additional
+  organization-read grant; legacy raw recovery policy is unchanged. No HTTP
+  route or Reference feature is enabled.
+
 - Add original-key `OperationService.CreateTeam` over the existing native team
   owner. The chosen canonical team ID, exact organization version and bounded
   name remain fixed; creation adds no members. Matching retries classify only
