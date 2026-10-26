@@ -533,7 +533,7 @@ func (u *unitOfWork) Recover(ctx context.Context, id identity.CommandID) (organi
 	q := identity.RecoveryQuery{CommandID: id, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
 	var receipt identity.CommandResult
 	var e error
-	if s.participant.operationRestore != nil && (organization.Operation(b.OperationID) == organization.Create || organization.Operation(b.OperationID) == organization.Update || organization.Operation(b.OperationID) == organization.AddMember || organization.Operation(b.OperationID) == organization.UpdateMember || isLifecycleMutation(organization.Operation(b.OperationID))) {
+	if s.participant.operationRestore != nil && (organization.Operation(b.OperationID) == organization.Create || organization.Operation(b.OperationID) == organization.Update || organization.Operation(b.OperationID) == organization.AddMember || organization.Operation(b.OperationID) == organization.UpdateMember || organization.Operation(b.OperationID) == organization.OwnerTransfer || isLifecycleMutation(organization.Operation(b.OperationID))) {
 		// Only the facade's exact invocation participant opts into real mapped
 		// original recovery. Reuse these current native disclosure fences; a
 		// mapping with no journal remains Unknown, never a reexecution grant.

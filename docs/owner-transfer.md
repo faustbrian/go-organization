@@ -98,3 +98,28 @@ this does not confer disclosure authority or change the native current-member
 recovery policy above. The root request is transport-neutral and alone enables
 no initiating durable workflow or HTTP route. Existing preparation APIs remain
 supported unchanged.
+
+The native PostgreSQL `OperationService.OwnerTransfer` accepts that request and
+the trusted canonical client IP. It uses the existing request-key preparation
+and encrypted binding custody, then executes the exact original native
+preparation with its signed password-owner admission. Install the existing
+kernel request-key and request-key-preparation migrations before selecting
+`OperationService`; no additional transfer migration is needed. Retain the
+configured operation-custody keys and fixed `ConfigurationID` for matching-key
+recovery. Change that trusted configuration ID when selected policy materially
+changes; a changed proof audience is also part of mutation intent.
+
+After transfer, the source's matching-key retry or exact `RecoverOperation`
+authenticates its current session and surviving membership before disclosing
+only original metadata. It does not need a replacement proof or renewed owner
+role. Withdrawal of that current session, membership or disclosure policy denies
+history. A known aborted result remains aborted on retry even if its cause has
+cleared; a key mapping without a classified journal remains unknown and never
+starts execution. This native convenience API adds no HTTP route or Reference
+composition and does not claim complete M22 delivery.
+
+Concurrent matching calls may observe the winning original journal in progress
+and return its exact unknown correlation, or deny disclosure when that winner
+changes an in-flight current-authority snapshot. After those calls finish, a
+stable matching-key retry classifies the same original result; a transient
+response is never a not-committed conclusion or permission to execute again.

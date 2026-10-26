@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add original-key `OperationService.OwnerTransfer` over the existing native
+  owner-transfer and password-proof workflow. Exact organization and both
+  membership versions, current owner/session/factor authority and protected
+  role/authority/audit/outbox effects remain native. Matching retries classify
+  only the original command under current disclosure policy, including the
+  former owner while still a member; changed intent conflicts and unknown
+  outcomes never create another execution. Existing preparation/recovery APIs
+  and migrations remain unchanged; no HTTP route is enabled.
+
 - Add natural-repeat authenticated self-leave through `OperationService`, using
   internally allocated commands and the existing protected leave transition.
   Matching repeats recover actual original metadata after departure under
