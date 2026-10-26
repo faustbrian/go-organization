@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add natural-repeat authenticated self-leave through `OperationService`, using
+  internally allocated commands and the existing protected leave transition.
+  Matching repeats recover actual original metadata after departure under
+  current verified-self and explicit disclosure policy, never inferred success
+  from absence or automatic unknown replay. Old intent conflicts with active
+  readmission; explicit full-binding history remains recoverable without a new
+  membership grant. Legacy `Service.Recover` keeps its membership requirement.
+  Install one additive `LeaveOperationLookupMigrationSource` or transactional
+  variant before activation, using a later version or independent namespace;
+  the transactional index build needs a bounded write-blocking operator window.
+
 - Expose existing current-user organization listing through `OperationService`
   without request-key admission or organization allocation. Explicit page limits,
   scope-bound continuations, current membership/authority and policy filtering

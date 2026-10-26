@@ -179,6 +179,13 @@ func (s *OperationService) RecoverOperation(ctx context.Context, r organization.
 		return organization.StoreResult{}, organization.ErrInvalidInput
 	}
 	state := s.state()
+	if organization.Operation(r.Binding.OperationID) == organization.LeaveMember {
+		service, err := state.compose(nil)
+		if err != nil {
+			return organization.StoreResult{}, err
+		}
+		return service.recoverLeaveOperation(ctx, r.Authentication, r.Binding, false)
+	}
 	if organization.Operation(r.Binding.OperationID) == organization.RemoveMember {
 		return state.source.Recover(ctx, r.Authentication, Recovery{Binding: r.Binding})
 	}

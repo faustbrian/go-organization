@@ -412,6 +412,7 @@ type recoveryInput struct {
 	credential   session.Credential
 	organization organization.Organization
 	member       organization.Member
+	leave        *leaveRecoveryAdmission
 }
 
 // Recovery policy callbacks are not authority leases. Re-read the submitted
@@ -439,7 +440,11 @@ func (s *Service) revalidateRecovery(ctx context.Context, r *recoveryInput) erro
 	if _, _, _, err = sessionpg.OriginalSessionAdmission(s.participant.config.Profile, current.Session, actorBinding); err != nil {
 		return organization.ErrForbidden
 	}
-	if r.organization.Version != 0 {
+	if r.leave != nil {
+		if err := s.revalidateLeaveRecovery(ctx, b, *r.leave); err != nil {
+			return err
+		}
+	} else if r.organization.Version != 0 {
 		view, err := s.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: b.TenantID, ActorID: identity.UserID(b.ActorID), OrganizationID: organization.ID(b.RecordID), Lifecycle: isLifecycleMutation(organization.Operation(b.OperationID))})
 		if err != nil {
 			return err

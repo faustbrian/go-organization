@@ -408,6 +408,33 @@ Current membership remains mandatory for historical disclosure: after leaving,
 `Recover` denies until legitimate readmission, and old team bindings stay invalid.
 See [self-leave semantics](../docs/member-leave.md).
 
+The optional `OperationService.LeaveMember` facade instead accepts only a
+`LeaveMemberOperationRequest` (current bearer, organization and exact version,
+diagnostic correlation): no target, key or caller command. It derives self and
+allocates the command through the same protected native transition. A matching
+natural repeat returns the **actual original** coordinator receipt after
+departure under a current verified-self session and explicit current leave and
+command-query policies. The final session, original observation deadline,
+organization/member epochs and scoped authority are revalidated after policy
+callbacks. Missing history or a tombstone alone is not success. Unknown outcomes
+retain their original binding and never cause automatic mutation replay.
+Old natural input conflicts while a readmitted membership is active;
+`RecoverOperation` may still disclose exact historical metadata to the currently
+authorized self after readmission. Neither route grants membership or revives
+old team bindings, and legacy `Service.Recover` keeps its membership requirement.
+
+Before enabling that facade, install `LeaveOperationLookupMigrationSource` at
+an allocated later version or in an **independent runner namespace**. It does
+not alter an installed invitation migration prefix. Its partial unique index
+on existing command effects `(tenant_id, organization_id, before_version)`
+adds one narrow entry per committed leave and no entries for other operations.
+The concurrent build runs outside transactions and requires explicit invalid-
+index reconciliation if interrupted. Alternatively select
+`LeaveOperationLookupTransactionalMigrationSource` for atomic migration runners
+in a bounded operator window with transaction/lock timeouts: the build blocks
+command-effect writes. Choose one variant, never both or a replacement for the
+other variant's installed history. No new journal or result authority is added.
+
 The selected [ownership-transfer profile](../docs/owner-transfer.md) uses
 `PrepareOwnerTransfer` and the same `Execute`/`Recovery` boundary. Install the
 password owner's selected action-proof migration and supply its native primary
