@@ -2,6 +2,18 @@
 
 ## Transport-neutral direct-operation requests
 
+`CreateDynamicRoleOperationRequest` and `UpdateDynamicRoleOperationRequest`
+retain one original key, chosen organization/role IDs, exact epochs and complete
+ordered name/statements intent. `DeleteDynamicRoleOperationRequest` naturally
+repeats exact-version retirement without a key or caller command. Only actual
+original correlation/receipts—not a tombstone—prove success. Intrinsic validation
+preserves the native 64-statement/8192-encoded-byte ceiling and deny statements;
+the deployment's immutable catalog and current role-write/session/query authority
+remain native decisions. Executing adapters must freeze borrowed statements
+before callbacks. Original CRUD recovery is self-actor scoped. These neutral
+contracts alone enable no durable workflow or HTTP route; raw role APIs remain
+unchanged, including direct/team assignment and terminal binding invalidation.
+
 `UpdateTeamOperationRequest` carries an original key, the chosen team and exact
 organization/team epochs plus the bounded replacement name.
 `DeleteTeamOperationRequest` naturally repeats terminal deletion at those exact

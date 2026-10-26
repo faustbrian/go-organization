@@ -136,11 +136,11 @@ func (r RemoveMemberOperationRequest) Validate() error {
 }
 
 // Validate limits recovery to this selected profile and original tenant scope.
-// LeaveMember and team creation/lifecycle require exact self target/actor bindings.
+// LeaveMember, team creation/lifecycle and role CRUD require self actor bindings.
 // A structurally valid binding still confers no disclosure permission.
 func (r OperationRecoveryRequest) Validate() error {
 	op := Operation(r.Binding.OperationID)
-	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember && op != LeaveMember && op != Archive && op != Restore && op != OwnerTransfer && op != CreateTeam && op != AddTeamMember && op != RemoveTeamMember && op != UpdateTeam && op != DeleteTeam || (lifecycleMutation(op) || op == LeaveMember || op == CreateTeam || op == UpdateTeam || op == DeleteTeam) && r.Binding.UserID != identity.UserID(r.Binding.ActorID) || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
+	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember && op != LeaveMember && op != Archive && op != Restore && op != OwnerTransfer && op != CreateTeam && op != AddTeamMember && op != RemoveTeamMember && op != UpdateTeam && op != DeleteTeam && op != CreateDynamicRole && op != UpdateDynamicRole && op != DeleteDynamicRole || (lifecycleMutation(op) || op == LeaveMember || op == CreateTeam || op == UpdateTeam || op == DeleteTeam || op == CreateDynamicRole || op == UpdateDynamicRole || op == DeleteDynamicRole) && r.Binding.UserID != identity.UserID(r.Binding.ActorID) || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
 		return ErrInvalidInput
 	}
 	return nil

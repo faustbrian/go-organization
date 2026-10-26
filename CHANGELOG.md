@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add neutral original-key custom-role create/update and natural exact-version
+  terminal-delete requests without caller commands. Ordered statement intent
+  retains existing intrinsic bounds; catalog membership and current authority
+  remain native-owned. Exact self-actor CRUD bindings admit original recovery
+  syntax, never success inferred from tombstones. Credential/key/intent export
+  is denied. Existing raw role APIs remain unchanged; these contracts alone
+  enable no durable workflow or HTTP route.
+
 - Add neutral original-key team rename and natural exact-version terminal-delete
   requests without caller commands. Matching original recovery retains exact
   self-actor scope; tombstones alone establish no successful outcome. Bounded
