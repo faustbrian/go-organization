@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add a neutral original-key owner-transfer request binding the existing member,
+  organization and both membership versions and complete original password
+  proof. Bounded validation and redacted custody confer no authority. Exact
+  transfer bindings can use neutral original-outcome recovery syntax; existing
+  preparation and native recovery APIs remain unchanged. This contract alone
+  enables no durable initiating workflow or HTTP route.
+
 - Add a neutral natural-repeat self-leave request and exact-self original-outcome
   recovery syntax, without a target, key or caller command ID. Bounded validation
   and redacted custody grant no execution or disclosure authority. Existing

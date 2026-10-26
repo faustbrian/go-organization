@@ -77,3 +77,24 @@ The existing membership schema and original command framing are retained;
 no forward organization migration is necessary for these role/version updates.
 Dynamic roles, federation, active organization/team selection and transport
 integration remain outside this finite profile.
+
+## Original-key request contract
+
+`OwnerTransferOperationRequest` adds one required `identity.IdempotencyKey` to
+this existing ownership-transfer contract; the native owner allocates the
+command ID. Its syntax validation checks the organization, target, all three
+versions and complete action-bound password proof without IO, authentication,
+trusted-clock observations or proof consumption. An expired original proof
+remains representable for historical classification, not fresh execution.
+
+Matching keys classify only the original command without preparing or executing
+again, replacing the proof or renewing authority. Changed target, versions,
+complete proof or selected configuration conflicts; unknown outcomes never
+permit another execution. Credentials, keys and proofs are borrowed opaque
+custody: formatting is redacted and JSON/text serialization is rejected.
+
+An exact transfer binding is accepted by `OperationRecoveryRequest.Validate`;
+this does not confer disclosure authority or change the native current-member
+recovery policy above. The root request is transport-neutral and alone enables
+no initiating durable workflow or HTTP route. Existing preparation APIs remain
+supported unchanged.

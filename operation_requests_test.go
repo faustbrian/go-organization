@@ -55,8 +55,8 @@ func TestUpdateMemberOperationRecoveryRetainsOriginalBinding(t *testing.T) {
 		"foreign tenant":  func(r *organization.OperationRecoveryRequest) { r.Authentication.TenantID = "other" },
 		"missing command": func(r *organization.OperationRecoveryRequest) { r.Binding.CommandID = "" },
 		"wrong schema":    func(r *organization.OperationRecoveryRequest) { r.Binding.SchemaID = "organization" },
-		"ownership transfer remains separate": func(r *organization.OperationRecoveryRequest) {
-			r.Binding.OperationID = string(organization.OwnerTransfer)
+		"hard deletion remains separate": func(r *organization.OperationRecoveryRequest) {
+			r.Binding.OperationID = "identity.organization.delete"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -337,7 +337,7 @@ func TestOperationRecoveryRequestRetainsOriginalScope(t *testing.T) {
 	for name, change := range map[string]func(*organization.OperationRecoveryRequest){
 		"cross tenant": func(r *organization.OperationRecoveryRequest) { r.Authentication.TenantID = "other" },
 		"unselected operation": func(r *organization.OperationRecoveryRequest) {
-			r.Binding.OperationID = string(organization.OwnerTransfer)
+			r.Binding.OperationID = "identity.organization.delete"
 		},
 		"missing command": func(r *organization.OperationRecoveryRequest) { r.Binding.CommandID = "" },
 		"workload actor": func(r *organization.OperationRecoveryRequest) {
