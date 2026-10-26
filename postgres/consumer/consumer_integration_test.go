@@ -386,7 +386,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
 	var resendAdministrator invitationResendAdministrator
-	if invitationProfile == "resend" || invitationProfile == "resend-operation" || invitationProfile == "cancel-operation" {
+	if invitationProfile == "resend" || invitationProfile == "resend-operation" || invitationProfile == "cancel-operation" || strings.HasPrefix(invitationProfile, "reject-operation") {
 		resendAdministrator.authentication, resendAdministrator.id, resendAdministrator.signin, _ = register()
 	}
 	if ownerID == memberID {

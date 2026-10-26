@@ -241,7 +241,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
-	if selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "cancel-operation" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
+	if selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "cancel-operation" || strings.HasPrefix(selectedProfile, "reject-operation") || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		populated := issue("resend-populated")
 		var history migrationList
 		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}, organizationpg.InvitationResendMigrationSource{Version: 7009}} {
@@ -282,7 +282,9 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			t.Fatal("genuine third administrator missing")
 		}
 		f := invitationResendConsumer{ctx: ctx, pool: pool, organizations: organizations, service: service, configuration: configuration, newService: newService, issue: issue, worker: worker, mailbox: mailbox, limits: limits, owner: owner, recipient: recipient, ownerID: ownerID, recipientID: recipientID, signinOwner: signinOwner, signinRecipient: signinRecipient, administrator: administrators[0], populated: populated, statusPolicy: statusPolicy, signer: countedSigner}
-		if selectedProfile == "cancel-operation" {
+		if strings.HasPrefix(selectedProfile, "reject-operation") {
+			exerciseInvitationRejectOperations(t, f, db, strings.TrimPrefix(selectedProfile, "reject-operation"))
+		} else if selectedProfile == "cancel-operation" {
 			exerciseInvitationCancelOperations(t, f, db)
 		} else if selectedProfile == "resend-operation" {
 			exerciseInvitationResendOperations(t, f, db, keys, material)

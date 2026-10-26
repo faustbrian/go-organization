@@ -27,6 +27,15 @@ These consumers prove their selected existing native profiles, not full M22,
 external lifecycle cascades or a stable organization release. See the
 [native adoption and security notes](../README.md).
 
+`TestOrganizationGenuineInvitationRejectOperationConsumer` and the independent
+`TestOrganizationGenuineInvitationRejectWithdrawalConsumer` fixtures prove
+natural recipient rejection without membership or manager/read authority.
+They cover original and changed selectors, legacy NULL history, the independent
+optional migration, predecessor denial, atomic audit/outbox rollback, actual
+COMMIT-response loss, competing rejection/acceptance and fresh-session recovery.
+Identifier withdrawal during either disclosure-policy boundary must actually
+commit and deny the original receipt; fixture security epochs are never reset.
+
 `TestOrganizationGenuineInvitationCancelOperationConsumer` proves naturally
 repeatable cancellation with native-allocated command identity. It uses real
 manager sessions, exact original selector/history, old-proof denial, restart
