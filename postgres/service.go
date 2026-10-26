@@ -354,7 +354,7 @@ func (s *Service) Recover(ctx context.Context, a organization.Authentication, r 
 		var readErr error
 		if isLifecycleMutation(op) {
 			view, readErr = s.core.GetLifecycle(bounded, organization.ReadRequest{Authentication: a, OrganizationID: organization.ID(b.RecordID), CorrelationID: b.CorrelationID})
-		} else if op == organization.AddTeamMember && s.participant.operationRestore != nil || op == organization.RemoveTeamMember && (s.participant.operationRestore != nil || s.participant.naturalTeamRemove) {
+		} else if s.participant.operationRestore != nil && (op == organization.CreateTeam || op == organization.UpdateTeam || op == organization.DeleteTeam || op == organization.AddTeamMember || op == organization.RemoveTeamMember) || op == organization.RemoveTeamMember && s.participant.naturalTeamRemove || op == organization.DeleteTeam && s.participant.naturalTeamDelete {
 			// These opt-in team operations require team-write, not an unrelated
 			// organization-read grant. This is only an internal admission snapshot:
 			// actual action authorization and the existing pre/post-query native
@@ -539,7 +539,7 @@ func (u *unitOfWork) Recover(ctx context.Context, id identity.CommandID) (organi
 	q := identity.RecoveryQuery{CommandID: id, TenantID: b.TenantID, UserID: b.UserID, ActorID: b.ActorID, ActorKind: b.ActorKind, OperationID: b.OperationID, RecordID: b.RecordID}
 	var receipt identity.CommandResult
 	var e error
-	if s.participant.operationRestore != nil && (organization.Operation(b.OperationID) == organization.Create || organization.Operation(b.OperationID) == organization.Update || organization.Operation(b.OperationID) == organization.AddMember || organization.Operation(b.OperationID) == organization.UpdateMember || organization.Operation(b.OperationID) == organization.OwnerTransfer || organization.Operation(b.OperationID) == organization.CreateTeam || organization.Operation(b.OperationID) == organization.AddTeamMember || isLifecycleMutation(organization.Operation(b.OperationID))) {
+	if s.participant.operationRestore != nil && (organization.Operation(b.OperationID) == organization.Create || organization.Operation(b.OperationID) == organization.Update || organization.Operation(b.OperationID) == organization.AddMember || organization.Operation(b.OperationID) == organization.UpdateMember || organization.Operation(b.OperationID) == organization.OwnerTransfer || organization.Operation(b.OperationID) == organization.CreateTeam || organization.Operation(b.OperationID) == organization.AddTeamMember || organization.Operation(b.OperationID) == organization.UpdateTeam || isLifecycleMutation(organization.Operation(b.OperationID))) {
 		// Only the facade's exact invocation participant opts into real mapped
 		// original recovery. Reuse these current native disclosure fences; a
 		// mapping with no journal remains Unknown, never a reexecution grant.

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add original-key team rename, current exact team reading and natural terminal
+  deletion through `OperationService`, retaining native epoch, identity-retirement,
+  membership, audit/outbox and original-recovery ownership. Rename preserves
+  bindings; deletion never revives an ID or retained membership. Select the
+  existing lifecycle migration/profile and optional
+  `TeamDeleteOperationLookupMigrationSource` before natural deletion, in a bounded
+  write-blocking maintenance window. Legacy effects stay uncorrelated and raw
+  explicit commands remain compatible without that optional schema. Team facade
+  recovery, including `CreateTeam`, uses actual team-write/query permissions
+  without general organization-read permission; raw legacy recovery is unchanged.
+  No HTTP/Reference or dynamic-role feature is enabled.
+
 - Add original-key team-member admission, natural exact-binding removal and
   current own-team/member reads through `OperationService`, using the existing
   native team/authority/audit/outbox owners. Matching retries recover original

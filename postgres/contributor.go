@@ -63,6 +63,9 @@ type Contributor struct {
 	// Only an isolated natural-removal invocation selects optional exact-effect
 	// correlation. Ordinary explicit team commands keep their original INSERT.
 	naturalTeamRemove bool
+	// Only an isolated natural terminal-delete invocation selects its optional
+	// exact-effect correlation; unmarked explicit writers retain their schema.
+	naturalTeamDelete bool
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)

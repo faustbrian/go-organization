@@ -1,5 +1,31 @@
 # go-organization/postgres
 
+## Original-key team rename and natural terminal deletion
+
+`OperationService.UpdateTeam` replaces only a bounded team name at exact
+organization/team epochs under one original key. Members see the new name through
+the existing current-team reads; rename preserves membership and scoped binding
+versions. `GetTeam` delegates the existing manager-only exact read.
+`DeleteTeam` naturally repeats terminal deletion without a key or caller command.
+It preserves the native retired-ID guard and makes retained bindings ineffective;
+an absent live row or tombstone alone is never a successful original receipt.
+
+Enable the existing `Teams.LifecycleVersion: 1` profile after its forward team
+lifecycle migration. Before selecting natural deletion, additionally install
+`TeamDeleteOperationLookupMigrationSource` at an unused permanent version. Its
+nullable selectors and partial unique index extend the existing atomic effect,
+not a second journal; legacy effects are not backfilled and raw explicit commands
+need no optional lookup schema. Its transactional index build requires a bounded
+write-blocking operator window with lock/transaction timeouts.
+
+Matching original rename keys and delete selectors recover only actual original
+receipts under current session, manager, actual team-write and outcome-query
+authority. These facades, including existing `CreateTeam` recovery, do not require
+an unrelated organization-read grant; raw legacy `Service.Recover` retains its
+contract. Unknown outcomes never authorize automatic execution. Keep the original
+binding for explicit recovery when a natural request cannot identify an unattached
+command. No HTTP/Reference feature or dynamic-role profile is enabled here.
+
 ## Original team-member admission and exact-binding removal
 
 `OperationService.AddTeamMember` accepts one original key and the exact
