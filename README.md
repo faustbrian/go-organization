@@ -2,6 +2,14 @@
 
 ## Transport-neutral direct-operation requests
 
+`UpdateTeamOperationRequest` carries an original key, the chosen team and exact
+organization/team epochs plus the bounded replacement name.
+`DeleteTeamOperationRequest` naturally repeats terminal deletion at those exact
+epochs without a key or caller command. Original effect correlation and current
+team-write/session/query authority—not tombstone presence—establish recovery.
+Their original recovery bindings are self-actor scoped. These neutral contracts
+alone enable no durable workflow or HTTP route; explicit team APIs are unchanged.
+
 `AddTeamMemberOperationRequest` carries one original key;
 `RemoveTeamMemberOperationRequest` is naturally repeatable without a key or caller
 command. Both bind the chosen organization, team and user plus exact organization,

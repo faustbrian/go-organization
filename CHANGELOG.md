@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add neutral original-key team rename and natural exact-version terminal-delete
+  requests without caller commands. Matching original recovery retains exact
+  self-actor scope; tombstones alone establish no successful outcome. Bounded
+  validation and custody redaction grant no execution or disclosure authority.
+  Existing explicit team APIs are unchanged; no durable workflow or HTTP route
+  is enabled by these neutral contracts alone.
+
 - Add keyed team-member admission and naturally repeatable exact-binding removal
   requests, retaining chosen team/user IDs and all four expected epochs without
   a caller command. Exact original team-member bindings admit neutral recovery

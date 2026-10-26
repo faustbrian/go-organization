@@ -101,8 +101,9 @@ func TestCreateTeamOperationRecoveryRetainsSelfActorAndOriginalOrganization(t *t
 		"team-read-has-no-mutation-recovery": func(r *organization.OperationRecoveryRequest) {
 			r.Binding.OperationID = string(organization.GetTeam)
 		},
-		"team-update-remains-separate": func(r *organization.OperationRecoveryRequest) {
+		"team-update-requires-self-target": func(r *organization.OperationRecoveryRequest) {
 			r.Binding.OperationID = string(organization.UpdateTeam)
+			r.Binding.UserID = "member"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
