@@ -98,8 +98,8 @@ func TestCreateTeamOperationRecoveryRetainsSelfActorAndOriginalOrganization(t *t
 		},
 		"missing-command": func(r *organization.OperationRecoveryRequest) { r.Binding.CommandID = "" },
 		"wrong-schema":    func(r *organization.OperationRecoveryRequest) { r.Binding.SchemaID = "organization" },
-		"team-member-remains-separate": func(r *organization.OperationRecoveryRequest) {
-			r.Binding.OperationID = string(organization.AddTeamMember)
+		"team-read-has-no-mutation-recovery": func(r *organization.OperationRecoveryRequest) {
+			r.Binding.OperationID = string(organization.GetTeam)
 		},
 		"team-update-remains-separate": func(r *organization.OperationRecoveryRequest) {
 			r.Binding.OperationID = string(organization.UpdateTeam)

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add keyed team-member admission and naturally repeatable exact-binding removal
+  requests, retaining chosen team/user IDs and all four expected epochs without
+  a caller command. Exact original team-member bindings admit neutral recovery
+  syntax; current authority and durable outcomes remain adapter decisions.
+  Credential/key export is denied and existing explicit team APIs are unchanged.
+  These contracts alone enable no durable workflow or HTTP route.
+
 - Add an original-key team-creation request preserving the chosen canonical team
   ID, exact organization version and bounded name without a caller command or
   actor override. Matching retries require actual original metadata and current

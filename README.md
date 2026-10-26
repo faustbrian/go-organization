@@ -2,6 +2,15 @@
 
 ## Transport-neutral direct-operation requests
 
+`AddTeamMemberOperationRequest` carries one original key;
+`RemoveTeamMemberOperationRequest` is naturally repeatable without a key or caller
+command. Both bind the chosen organization, team and user plus exact organization,
+team, organization-admission and team-binding versions. Removal requires a
+positive binding version. Organization readmission never revives a prior team
+binding. `OperationRecoveryRequest` accepts the exact original target binding;
+actual current manager/session authority and original receipts remain native
+decisions, not syntax-validation grants.
+
 `CreateOperationRequest`, `UpdateOperationRequest`,
 `AddMemberOperationRequest` and `UpdateMemberOperationRequest` carry one required
 `identity.IdempotencyKey`; `RemoveMemberOperationRequest` is a non-keyed,
