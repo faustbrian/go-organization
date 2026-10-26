@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Isolate existing genuine Reference/HTTP consumers in the nested test-only
+  `postgres/consumer` module, preserving their entrypoints, assertions and native
+  fixture coverage. Remove test-only Reference/HTTP dependencies from the native
+  production module so Reference can compose this adapter without a reverse
+  module edge. Production APIs, transaction ownership and behavior are unchanged.
+
 - Add `InvitationService.PrepareAcceptance` returning an opaque two-phase handle
   over the exact existing native preparation and authenticated original rate
   facts. Transports can finish native/rate admission before handler middleware,

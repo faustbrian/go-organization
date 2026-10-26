@@ -2,6 +2,7 @@
   "schema_version": 1,
   "repository": "github.com/faustbrian/go-organization",
   "packages": [
+{"module_directory":"postgres/consumer","directory":".","name":"consumer","import_path":"github.com/faustbrian/go-organization/postgres/consumer","kind":"test support","production":false,"executable":true,"coverage_required":false,"build_required":true,"build_tags":[]},
     {
       "module_directory": ".",
       "directory": ".",

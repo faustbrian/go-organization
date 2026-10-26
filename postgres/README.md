@@ -4,6 +4,12 @@ Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
 
+Genuine signup/signin/Reference/HTTP composition tests live in the separate
+[consumer test module](consumer/README.md). The native production module does
+not depend on Reference or the organization HTTP leaf. Native-only fixtures and
+unit/integration tests remain here; the genuine consumers retain their existing
+entrypoints and assertions against normal published adapter pins.
+
 ## Once-only neutral invitation acceptance
 
 For transports with before-handler middleware, use
@@ -713,7 +719,8 @@ The same case continues through actual invitation send, captured encrypted
 delivery and recipient acceptance; it checks concurrency, exact paired lifecycle
 events, wrong-scope denial, failed-accept terminal release, tombstone versions
 and lost-COMMIT recovery through a new service and fresh password session.
-Run it with `go test -tags integration -run TestOrganizationGenuinePasswordConsumer`.
+From `postgres/consumer`, run
+`GOWORK=off go test -tags integration -run TestOrganizationGenuinePasswordConsumer`.
 This remains the finite single-factor password profile, not full platform
 qualification or proof of unselected authentication/session profiles.
 
@@ -730,8 +737,8 @@ its real journal, domain effect, protected audit and lifecycle outbox rows.
 Administrative admission uses the genuine PostgreSQL strict atomic backend and
 native atomic schema; keyed retries still consume distinct HTTP debit records.
 Actual responses are validated against the selected structured OpenAPI schemas.
-Run this bounded case with
-`go test -tags=integration -run '^TestOrganizationGenuineHTTPConsumer$' .`
+From `postgres/consumer`, run this bounded case with
+`GOWORK=off go test -tags=integration -run '^TestOrganizationGenuineHTTPConsumer$' .`
 against the same task-owned-cluster requirement above. This is public leaf/native
 consumer proof, not Reference startup composition, browser/active-selection
 support, invitations, teams or complete identity-platform qualification.

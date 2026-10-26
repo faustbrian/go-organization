@@ -233,7 +233,7 @@ policy is silently weakened. Neither verification nor metadata is permission
 to consume, and unknown command outcomes retain the original invitation ID.
 
 Native send/accept and new-service metadata recovery are exercised by the
-[genuine public consumer](postgres/invitation_consumer_integration_test.go).
+[genuine public consumer](postgres/consumer/invitation_consumer_integration_test.go).
 A definitive failed acceptance terminal-releases its unused grant: it is not
 reusable under a new command. A new owner-authorized send can issue a distinct
 grant within the pending limit; it does not silently resend or cancel the old
