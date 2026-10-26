@@ -630,6 +630,34 @@ metadata. Rejection itself does not resend, explicitly expire or recall delivery
 
 ### Pending invitation cancellation
 
+For initiating callers, `InvitationService.Cancel(ctx,
+organization.InvitationCancelOperationRequest, trustedCanonicalClientIP)` accepts
+current bearer authentication and exact organization/invitation IDs and versions.
+This is a **natural repeat**, not an initiating-key operation: there is no client
+key, caller command ID, recipient override or proof. The existing native owner
+allocates and executes one exact preparation. Current recipient withdrawal does
+not prevent a manager from revoking the prospective invitation grant.
+
+Before selecting `Cancel`, install `InvitationCancelOperationMigrationSource` at
+an unused permanent version after the installed invitation migrations. It adds
+nullable original organization-version correlation to the existing command
+effects and a bounded partial unique cancellation index, not a new journal.
+The transactional build blocks writes; use an explicit bounded maintenance
+window with configured transaction/lock timeouts. Existing effects remain NULL
+and cannot be upgraded from today's organization version. Legacy/raw explicit
+cancellation does not require this optional migration and remains unchanged.
+
+A reconstructed identical natural request, even with a new diagnostic
+correlation, retrieves only the actual original committed binding, invitation
+transition and audit metadata for that original actor. Exact original versions
+are still required; current manager/session/action/recovery/scoped authority is
+rechecked through the existing owners. A cancelled or absent row is not success,
+and legacy NULL correlation fails closed. Historical lookup performs no new
+execution, risk-counter use, outbox publication or proof consumption. An initial
+Unknown returns immediately without redispatch: preserve its receipt binding
+and use existing `Recover`. The committed-effect lookup does not identify a
+pending/uncommitted original command from request syntax alone.
+
 Install the forward-only `InvitationCancellationMigrationSource` at a permanent
 version after all already selected organization migrations before calling
 `InvitationService.PrepareCancel`. Installed invitation migration bytes remain

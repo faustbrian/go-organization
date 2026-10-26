@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add initiating natural-repeat `InvitationService.Cancel` with owner-allocated
+  commands and exact original cancellation metadata under current manager and
+  session authority. No key, caller command ID or recipient proof is required;
+  recipient withdrawal does not prevent revocation. Select the additive
+  `InvitationCancelOperationMigrationSource` first for nullable original-epoch
+  correlation and a bounded existing-effect index; its transactional build needs
+  a bounded operator window. Legacy effects fail closed rather than inventing
+  historical matches, while raw explicit cancellation remains compatible without
+  this optional migration. No new journal or HTTP route is introduced.
+
 - Add original-key `InvitationOperationService.Resend` over the existing native
   resend, capability and delivery owners. Matching retries reconcile only the
   original transition and authorized original delivery state, including after

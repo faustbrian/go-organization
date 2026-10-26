@@ -33,6 +33,7 @@ type invitationPhase struct {
 	coordinator   *kernel.Coordinator
 	execution     *invitationExecution
 	applied       bool
+	naturalCancel bool
 }
 
 var _ kernel.OrganizationInvitationIssuanceContributor = (*invitationPhase)(nil)
