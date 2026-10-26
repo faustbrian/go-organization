@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add original-key invitation-resend request and neutral outcome/delivery-state
+  contracts. Preserve the fixed recipient, role and original exclusive expiry;
+  retries classify the original successor without reissuing or redelivering it.
+  Existing explicit native APIs are unchanged; these contracts alone enable no
+  durable execution or HTTP route.
+
 - Add keyed `LifecycleOperationRequest` for exact-version owner archive/restore
   with complete original action-proof intent, and exact original lifecycle
   recovery syntax. Credentials and initiating keys remain non-serializable;

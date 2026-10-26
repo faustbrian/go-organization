@@ -53,6 +53,18 @@ only that original outcome; an unknown outcome cannot authorize another send.
 There is no submitted address, caller role or proof in this request. Existing
 explicit `InvitationSendRequest` and native acceptance contracts are unchanged.
 
+`InvitationResendOperationRequest` carries the original key and exact invitation
+and organization versions without a caller command ID, recipient, role or expiry
+override. The organization epoch is read-only; the invitation version must leave
+room for both successor and terminal transitions. Native resend keeps the
+original recipient/deadline and atomically supersedes the predecessor proof.
+`InvitationResendOperationResult` retains the original outcome with an optional
+authorized original-delivery observation (`DeliveryState == 0` means absent).
+It never exposes proof or a delivery-effect ID; a status failure cannot erase
+known commitment or authorize redispatch. Existing explicit preparation and
+native result types remain unchanged. These neutral contracts alone enable no
+durable execution or HTTP route.
+
 `InvitationAcceptRequest` remains **once**, not keyed: callers retain their
 original `CommandID`, exact organization/invitation versions and privately held
 proof. Its `Validate` checks bounded syntax without consuming proof or granting
