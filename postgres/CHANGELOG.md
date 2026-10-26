@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add original-key `InvitationOperationService.Resend` over the existing native
+  resend, capability and delivery owners. Matching retries reconcile only the
+  original transition and authorized original delivery state, including after
+  later resends; changed intent/configuration conflicts. The existing recipient,
+  role and exclusive deadline are preserved without another proof or delivery.
+  A late delivery-status failure retains the known command outcome with no
+  invented delivery observation. Existing Send framing and native resend result
+  types remain unchanged; no new migration or HTTP route is introduced.
+
 - Add original-key `OperationService.Archive` and `Restore` through the existing
   selected native password action-primary and lifecycle owners. Complete proof,
   intent and lifecycle policy changes conflict; matching retries disclose only

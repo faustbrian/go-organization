@@ -510,6 +510,25 @@ Other full-goal profiles remain unimplemented.
 
 ### Invitation resend and supersession
 
+For initiating-key callers, `InvitationOperationService.Resend` accepts the
+neutral `InvitationResendOperationRequest`: current bearer authentication, one
+original key, exact organization/invitation IDs and versions, and correlation.
+It borrows the same selected owners and custody keys as `Send`, but retains a
+distinct authenticated resend frame; existing Send envelopes do not change.
+Only the winning initial mapping executes the exact native preparation. Matching
+keys recover the original outcome under current owner/administrator, session,
+scoped authority and verified-recipient fences, without preparing or signing
+again. Changed intent or configuration conflicts. No invitation-ID allocation,
+recipient/role override, deadline extension or new journal is involved.
+
+The neutral `InvitationResendOperationResult` preserves the `StoreResult` and
+projects only the original command's authorized delivery state, never its effect
+ID or invitation proof. Zero means no authorized observation, not Queued. A
+known commit remains visible if a later status lookup fails, with zero delivery
+state and an error. Later resends cannot redirect an original key to the newest
+delivery. The same request-key/preparation/expiry and native resend migrations
+remain required; pools and configuration remain borrowed.
+
 Install `InvitationResendMigrationSource` at an unused permanent version after
 the expiry migration, before selecting resend. Previous migration bytes and
 version1/2 rows remain unchanged. The forward schema retains an issued version

@@ -28,7 +28,10 @@ func (p *invitationPhase) currentDomain(ctx context.Context, w kernel.Work) (int
 	if state != "active" {
 		return 0, identity.ForbiddenError{}
 	}
-	if version != strconv.FormatUint(x.Organization.Version, 10) || x.Organization.Version == ^uint64(0) {
+	// Resend advances only the invitation's issued version; its organization
+	// epoch is read-only. Preserve the existing overflow guard for other paths,
+	// including acceptance, which advances organization authority.
+	if version != strconv.FormatUint(x.Organization.Version, 10) || x.Organization.Version == ^uint64(0) && x.Operation != organization.InvitationResend {
 		return 0, identity.ConflictError{}
 	}
 	if members < 1 || owners < 1 || owners > members {
