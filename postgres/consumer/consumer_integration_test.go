@@ -261,8 +261,11 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	registrations := 0
 	register := func() (organization.Authentication, identity.UserID, func() organization.Authentication, func(*passwordpg.ReauthenticationService, organization.Authentication, ...organization.Operation) auth.ReauthenticationProof) {
 		t.Helper()
+		registrations++
+		registration := registrations
 		client := server.Client()
 		client.Timeout = 6 * time.Second
 		client.Jar, _ = cookiejar.New(nil)
@@ -332,6 +335,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		}
 		signin := func() (organization.Authentication, identity.UserID) {
 			flow = preauth("password")
+			started := time.Now()
 			status, body, cookies = call("/v1/password/signin", map[string]any{"flowID": string(flow.FlowID), "identifier": address, "password": candidate, "callbackURL": origin + "/confirm"}, "")
 			var signed passwordhttp.SigninResponse
 			decoded := json.Unmarshal(body, &signed) == nil
@@ -348,7 +352,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 				default:
 					code = "unrecognized"
 				}
-				t.Fatalf("actual password signin failed: status=%d decoded=%t signed_in=%t outcome=%q error=%q command=%t recovery=%t session=%t cookies=%d", status, decoded, signed.SignedIn, outcome, code, signed.CommandID != "", signed.Recovery != nil, signed.SessionID != "", len(cookies))
+				t.Fatalf("actual password signin failed: registration=%d elapsed=%s status=%d decoded=%t signed_in=%t outcome=%q error=%q command=%t recovery=%t session=%t cookies=%d", registration, time.Since(started), status, decoded, signed.SignedIn, outcome, code, signed.CommandID != "", signed.Recovery != nil, signed.SessionID != "", len(cookies))
 			}
 			token, e := session.ParseToken(cookies[0].Value)
 			if e != nil {
@@ -382,7 +386,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
 	var resendAdministrator invitationResendAdministrator
-	if invitationProfile == "resend" {
+	if invitationProfile == "resend" || invitationProfile == "resend-operation" {
 		resendAdministrator.authentication, resendAdministrator.id, resendAdministrator.signin, _ = register()
 	}
 	if ownerID == memberID {

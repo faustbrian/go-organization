@@ -33,3 +33,11 @@ It checks warm/current denial, invitation cancellation, surviving membership,
 original recovery, changed-input conflict, rollback, actual COMMIT-response loss,
 same-key contention and current authority/session withdrawal. Its selected
 request-admission callback grants no native owner or proof authority.
+
+`TestOrganizationGenuineInvitationResendOperationConsumer` exercises original-key
+resend through the published adapter: fixed recipient/role/deadline, predecessor
+denial, encrypted successor delivery and acceptance, and reconstructed original
+recovery after later resends and acceptance. It also covers current administrator
+and recipient withdrawal (including inside delivery-status policy), rollback,
+mapping-only/final COMMIT-response loss, immutable original expiry/refusal and
+concurrent-key singleton effects before any recovery retry.

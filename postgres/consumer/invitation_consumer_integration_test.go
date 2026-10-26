@@ -110,7 +110,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		t.Fatal(err)
 	}
 	countedSigner := &invitationResendSigner{Signer: signer}
-	if selectedProfile == "resend" {
+	if selectedProfile == "resend" || selectedProfile == "resend-operation" {
 		signer = countedSigner
 	}
 	verifier, err := capability.NewHMACSHA256Verifier(material("capability-signing"))
@@ -147,7 +147,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		_, err := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), err)
 	}}, Invitation: organization.InvitationConfig{Audience: "organization-invitation", Lifetime: 48 * time.Hour, MaximumPending: 100}, Admission: organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000}, Sessions: sessions, Authorization: policy, Coordinator: coordinator, Risk: counters, Issuer: issuerpg.IssuerConfig{Crypto: capability.ServiceConfig{Issuer: origin, Signer: signer, Resolver: resolver, Clock: time.Now, Limits: limits}, Audience: "organization-invitation", CurrentReplayKeyVersion: 1, RetainedReplayKeys: map[uint32][32]byte{1: keys["capability-replay"]}, PreparationTimeout: time.Second}, Preparation: issuerpg.IssuancePreparationConfig{Deployment: "organization-invitation", ActiveEnvelopeKey: "capability-envelope", EnvelopeKeys: map[string][]byte{"capability-envelope": material("capability-envelope")}, VerificationKeys: []issuerpg.PreparationVerificationKey{{ID: "local-baseline", HMAC: material("capability-signing")}}, Clock: time.Now}, Delivery: organizationpg.InvitationDeliveryConfig{Owner: deliverer, Status: status, Renderer: renderer, Policy: deliveryPolicy, PolicyVersion: 2, ProviderVersion: 2, StatusPolicyVersion: 9, TemplateID: "organization-invitation", TemplateVersion: 1, LocaleChain: []string{"en"}, ScopeKey: keys["verification-scope"], Endpoint: origin + "/invitation"}}
-	if selectedProfile == "expire" || selectedProfile == "resend" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
+	if selectedProfile == "expire" || selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		configuration.Invitation.ExpirationReasons = []identity.PolicyReason{"security-withdrawal", "administrative-cleanup"}
 	}
 	service, err := organizationpg.NewInvitationService(repository, configuration)
@@ -241,7 +241,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
-	if selectedProfile == "resend" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
+	if selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		populated := issue("resend-populated")
 		var history migrationList
 		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}, organizationpg.InvitationResendMigrationSource{Version: 7009}} {
@@ -281,7 +281,12 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		if len(administrators) != 1 {
 			t.Fatal("genuine third administrator missing")
 		}
-		exerciseInvitationResend(t, invitationResendConsumer{ctx: ctx, pool: pool, organizations: organizations, service: service, configuration: configuration, newService: newService, issue: issue, worker: worker, mailbox: mailbox, limits: limits, owner: owner, recipient: recipient, ownerID: ownerID, recipientID: recipientID, signinOwner: signinOwner, signinRecipient: signinRecipient, administrator: administrators[0], populated: populated, statusPolicy: statusPolicy, signer: countedSigner})
+		f := invitationResendConsumer{ctx: ctx, pool: pool, organizations: organizations, service: service, configuration: configuration, newService: newService, issue: issue, worker: worker, mailbox: mailbox, limits: limits, owner: owner, recipient: recipient, ownerID: ownerID, recipientID: recipientID, signinOwner: signinOwner, signinRecipient: signinRecipient, administrator: administrators[0], populated: populated, statusPolicy: statusPolicy, signer: countedSigner}
+		if selectedProfile == "resend-operation" {
+			exerciseInvitationResendOperations(t, f, db, keys, material)
+		} else {
+			exerciseInvitationResend(t, f)
+		}
 		return
 	}
 	if selectedProfile == "expire" {
