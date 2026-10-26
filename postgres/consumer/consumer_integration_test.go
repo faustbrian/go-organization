@@ -210,7 +210,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	applied, e := graph.stores.ReferenceMigrationApply(ctx, reference.ReferenceMigrationApplyRequest{CommandID: "organization_real_consumer_install", Plan: plan.Plan, IdempotencyKey: install})
 	if e != nil || applied.Result.State() != reference.MigrationApplied {
-		t.Fatal("public native migration application failed", e)
+		t.Fatalf("public native migration application failed: state=%v deadline=%t canceled=%t receipts=%d", applied.Result.State(), errors.Is(e, context.DeadlineExceeded), errors.Is(e, context.Canceled), len(applied.Result.Receipts()))
 	}
 	// These existing public standalone allocations add common preparation and
 	// lockout custody without selecting password-change or other feature APIs.
@@ -334,8 +334,21 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 			flow = preauth("password")
 			status, body, cookies = call("/v1/password/signin", map[string]any{"flowID": string(flow.FlowID), "identifier": address, "password": candidate, "callbackURL": origin + "/confirm"}, "")
 			var signed passwordhttp.SigninResponse
-			if status != 200 || json.Unmarshal(body, &signed) != nil || !signed.SignedIn || signed.CommitOutcome != "committed" || len(cookies) != 1 {
-				t.Fatal("actual password signin failed", status)
+			decoded := json.Unmarshal(body, &signed) == nil
+			if status != 200 || !decoded || !signed.SignedIn || signed.CommitOutcome != "committed" || len(cookies) != 1 {
+				outcome := signed.CommitOutcome
+				switch outcome {
+				case "none", "unknown", "committed", "not_committed", "conflict", "in_progress":
+				default:
+					outcome = "unrecognized"
+				}
+				code := signed.Error
+				switch code {
+				case "", "unavailable", "rate_limiter_unavailable", "denied", "conflict", "in_progress", "rate_limited":
+				default:
+					code = "unrecognized"
+				}
+				t.Fatalf("actual password signin failed: status=%d decoded=%t signed_in=%t outcome=%q error=%q command=%t recovery=%t session=%t cookies=%d", status, decoded, signed.SignedIn, outcome, code, signed.CommandID != "", signed.Recovery != nil, signed.SessionID != "", len(cookies))
 			}
 			token, e := session.ParseToken(cookies[0].Value)
 			if e != nil {
