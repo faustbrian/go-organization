@@ -1,5 +1,14 @@
 # Genuine organization PostgreSQL consumers
 
+`TestOrganizationGenuineTeamLifecycleOperationConsumer` uses actual signup,
+verification and password sessions for original-key rename, current member views,
+natural terminal deletion and fresh-session/reconstructed original recovery.
+It explicitly denies general organization reads while exercising actual published
+team creation/recovery and the lifecycle facades. Retired-ID nonreuse, unchanged
+bindings, readmission denial, required-effect rollback, mapping/domain COMMIT loss,
+initial contention, late authority withdrawal and real SignOut remain native
+outcomes rather than application stores or inferred tombstone receipts.
+
 `TestOrganizationGenuineTeamMemberOperationConsumer` uses actual signup,
 verification and password sessions for original-key admission, current own-team
 and member reads, organization removal/readmission fencing and exact-binding
