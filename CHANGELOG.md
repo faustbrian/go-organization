@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an original-key team-creation request preserving the chosen canonical team
+  ID, exact organization version and bounded name without a caller command or
+  actor override. Matching retries require actual original metadata and current
+  manager/session authority, never new execution after an unknown outcome.
+  Exact self-actor team-create bindings admit neutral original recovery syntax;
+  existing explicit team APIs remain unchanged. These contracts alone enable
+  no durable initiating workflow or HTTP route.
+
 - Add a neutral natural-repeat invitation-expiry request binding exact invitation
   and organization versions and a registered non-secret reason, without a key,
   caller command or recipient proof. Repetition requires actual matching original

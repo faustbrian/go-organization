@@ -31,6 +31,18 @@ Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
 are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
 
+`CreateTeamOperationRequest` selects one required original key, exact organization
+version, caller-chosen canonical team ID and bounded team name. Creation adds no
+team members; the native owner allocates the command and retains existing current
+manager/session authority, quotas and atomic organization-epoch/audit/outbox effects.
+Matching key/intent repetitions recover only the actual original command, including
+from a fresh session or reconstructed service. Changed team ID, name or version
+conflicts; unknown outcomes never permit new execution or renewed authority.
+`OperationRecoveryRequest` accepts exact self-actor team-create bindings as safe
+correlation, not execution or disclosure authority. Existing `CreateTeamRequest`
+and explicit APIs are unchanged; these neutral contracts alone add no durable
+initiating workflow or HTTP route.
+
 `LeaveMemberOperationRequest` selects only the authenticated human's own
 membership at an exact original organization version. It contains no target,
 idempotency key or caller command ID; the native owner must capture the member
