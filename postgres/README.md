@@ -1,5 +1,32 @@
 # go-organization/postgres
 
+## Original-key direct role assignment and exact-binding revocation
+
+`OperationService.AssignDynamicRole` binds one chosen role to one current member
+under an original key and exact organization, role, member-admission and binding
+epochs. Discover those epochs through the existing `GetDynamicRole` target read;
+`CheckPermission` evaluates the real current direct/team grants and deny wins.
+`RevokeDynamicRole` naturally repeats only one exact direct revocation, with no
+caller command or key. Reassignment and organization readmission cannot revive
+an old grant or let an old revoke reach a newer binding. Team role assignment
+and revocation remain existing raw APIs.
+
+Before selecting natural revocation, install
+`RoleBindingRevokeOperationLookupMigrationSource` after the existing dynamic-role
+migration at an unused permanent version. Nullable original selectors and a
+scoped partial unique index extend the existing atomic command effect, without
+backfill or a second journal. The transactional index build blocks writes; use
+a bounded maintenance window and lock/transaction timeouts. Raw explicit writers
+and keyed assignments do not require that optional schema.
+
+Matching keys/selectors disclose only original native receipts under current
+session, manager, actual role-action and outcome-query policy, without general
+organization-read permission. Query authorization precedes historical selector
+classification, and the same original admission is fenced after final binding
+IO. Raw legacy recovery keeps its original read policy. Unknown outcomes never
+authorize replay; retain the original binding for explicit `RecoverOperation`.
+This profile adds no HTTP/Reference, team-binding facade or whole-M23 claim.
+
 ## Original-key custom-role CRUD and effective permission checks
 
 `OperationService.CreateDynamicRole` and `UpdateDynamicRole` retain one original

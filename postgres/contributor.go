@@ -69,6 +69,9 @@ type Contributor struct {
 	// Only an isolated natural role-delete invocation selects optional exact
 	// original selectors. Legacy explicit role writers retain their schema.
 	naturalDynamicRoleDelete bool
+	// Only an isolated direct-role revoke selects optional original selectors.
+	// Ordinary explicit direct/team binding writers retain the legacy INSERT.
+	naturalRoleRevoke bool
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)

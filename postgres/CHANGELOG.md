@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add original-key direct custom-role assignment and natural exact-binding
+  revocation through `OperationService`, preserving native membership, scoped
+  authority, effective permissions, atomic audit/outbox and original receipts.
+  New assignments or membership admissions cannot be reached by old revocations.
+  Select optional `RoleBindingRevokeOperationLookupMigrationSource` before
+  natural revocation in a bounded write-blocking maintenance window; legacy
+  effects are not backfilled and raw writers/keyed assignment remain compatible
+  without it. Actual role-action/query policy and final admission fences apply
+  without unrelated organization-read authority. Team-binding facades and
+  HTTP/Reference remain outside this profile.
+
 - Require actual original outcome-query authorization before classifying changed
   natural role/team-delete or team-member-removal selectors. Revalidate the same
   original native session, membership and scoped authority after final terminal

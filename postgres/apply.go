@@ -112,6 +112,9 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 	if c.operation == organization.DeleteDynamicRole && p.naturalDynamicRoleDelete {
 		return p.dynamicRoleDeleteOperationEffect(ctx, w, c, fingerprint[:])
 	}
+	if c.operation == organization.RevokeDynamicRole && p.naturalRoleRevoke {
+		return p.roleBindingRevokeEffect(ctx, w, c, fingerprint[:])
+	}
 	if _, e = w.Exec(ctx, `INSERT INTO organization.command_effects(command_id,tenant_id,organization_id,user_id,actor_id,operation,fingerprint,before_version,after_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8::numeric,$9::numeric)`, string(b.CommandID), string(b.TenantID), string(c.org.ID), string(b.UserID), string(b.ActorID), b.OperationID, fingerprint[:], strconv.FormatUint(c.org.Version, 10), strconv.FormatUint(c.org.Version+1, 10)); e != nil {
 		return identity.FeatureReceipt{}, e
 	}
