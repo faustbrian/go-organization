@@ -147,7 +147,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		_, err := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), err)
 	}}, Invitation: organization.InvitationConfig{Audience: "organization-invitation", Lifetime: 48 * time.Hour, MaximumPending: 100}, Admission: organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000}, Sessions: sessions, Authorization: policy, Coordinator: coordinator, Risk: counters, Issuer: issuerpg.IssuerConfig{Crypto: capability.ServiceConfig{Issuer: origin, Signer: signer, Resolver: resolver, Clock: time.Now, Limits: limits}, Audience: "organization-invitation", CurrentReplayKeyVersion: 1, RetainedReplayKeys: map[uint32][32]byte{1: keys["capability-replay"]}, PreparationTimeout: time.Second}, Preparation: issuerpg.IssuancePreparationConfig{Deployment: "organization-invitation", ActiveEnvelopeKey: "capability-envelope", EnvelopeKeys: map[string][]byte{"capability-envelope": material("capability-envelope")}, VerificationKeys: []issuerpg.PreparationVerificationKey{{ID: "local-baseline", HMAC: material("capability-signing")}}, Clock: time.Now}, Delivery: organizationpg.InvitationDeliveryConfig{Owner: deliverer, Status: status, Renderer: renderer, Policy: deliveryPolicy, PolicyVersion: 2, ProviderVersion: 2, StatusPolicyVersion: 9, TemplateID: "organization-invitation", TemplateVersion: 1, LocaleChain: []string{"en"}, ScopeKey: keys["verification-scope"], Endpoint: origin + "/invitation"}}
-	if selectedProfile == "expire" || selectedProfile == "resend" || selectedProfile == "lifecycle" {
+	if selectedProfile == "expire" || selectedProfile == "resend" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		configuration.Invitation.ExpirationReasons = []identity.PolicyReason{"security-withdrawal", "administrative-cleanup"}
 	}
 	service, err := organizationpg.NewInvitationService(repository, configuration)
@@ -241,7 +241,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
-	if selectedProfile == "resend" || selectedProfile == "lifecycle" {
+	if selectedProfile == "resend" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		populated := issue("resend-populated")
 		var history migrationList
 		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}, organizationpg.InvitationResendMigrationSource{Version: 7009}} {
@@ -251,7 +251,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			}
 			history = append(history, steps...)
 		}
-		if selectedProfile == "lifecycle" {
+		if selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 			for _, source := range []migrations.Source{organizationpg.DynamicRoleMigrationSource{Version: 7010}, organizationpg.TeamRoleBindingMigrationSource{Version: 7011}, organizationpg.DomainClaimMigrationSource{Version: 7012}, organizationpg.LifecycleMigrationSource{Version: 7013}} {
 				steps, e := source.Load(ctx)
 				if e != nil {
@@ -269,6 +269,10 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		if _, e = runner.Up(ctx); e != nil {
 			t.Fatal("resend migration replay", e)
+		}
+		if selectedProfile == "lifecycle-operation" {
+			exerciseGenuineLifecycleOperations(t, ctx, pool, db, organizations, service, owner, recipient, ownerID, recipientID, populated, lifecycle, keys, material)
+			return
 		}
 		if selectedProfile == "lifecycle" {
 			exerciseGenuineLifecycle(t, ctx, pool, organizations, service, owner, recipient, recipientID, signinOwner, populated, sendInvitation, lifecycle)

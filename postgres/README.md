@@ -133,12 +133,26 @@ mapping-only Unknown contract.
 `NewOperationService` borrows an existing genuine native `Service`; it directly
 implements transport-neutral `CreateOperationRequest`, `UpdateOperationRequest`,
 `AddMemberOperationRequest`, `UpdateMemberOperationRequest`,
-`RemoveMemberOperationRequest`, `ReadRequest` and
+`RemoveMemberOperationRequest`, `LifecycleOperationRequest`, `ReadRequest` and
 `OperationRecoveryRequest` signatures. No application store, coordinator,
 `UnitOfWork` adapter or HTTP dependency is needed. Existing `Prepare*` APIs are
-unchanged. The facade selects only create/update/get/member-list/add/role-update/
-remove, not invitations, ownership transfer, teams, browser cookies or active
-organization selection.
+unchanged. The facade selects create/update/get/member-list/add/role-update/
+remove and explicitly configured archive/restore, not invitations, ownership
+transfer, teams, browser cookies or active organization selection.
+
+`Archive` and `Restore` require the same installed lifecycle migration and
+matching native password action-primary sources as `PrepareArchive` and
+`PrepareRestore`. Supply the exact organization version, bounded reason and
+genuine action-bound proof in `LifecycleOperationRequest`. The initiating key
+binds the complete public proof projection and lifecycle policy as well as the
+mutation input. The original invocation executes the exact native prepared
+command, preserving signed proof custody and original admission/rate facts.
+Neither proof nor bearer is persisted by the request-key mapping. A matching
+retry or `RecoverOperation` returns only original metadata after checking the
+current session, owner, scoped authority and disclosure policy; it never renews
+or consumes proof authority. A mapping whose command outcome is absent remains
+Unknown. Fresh restore needs a distinct restore-bound proof and revives only
+surviving rights, never cancelled invitations or other terminal child authority.
 
 Before selecting it, install the identity coordinator's
 `RequestKeyMigrationSource` and `RequestKeyPreparationMigrationSource` and the

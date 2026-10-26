@@ -56,8 +56,8 @@ func NewOperationCustodyConfig(active string, keys map[string][]byte) (Operation
 	}}, nil
 }
 
-// OperationServiceConfig opts into direct create/update/add/role-update and
-// repeat removal using
+// OperationServiceConfig opts into direct create/update/add/role-update,
+// selected archive/restore and repeat removal using
 // the existing Service's real native owners. ConfigurationID is a fixed trusted
 // deployment profile (1..128 bytes), not request data; change it for material
 // selected-policy changes. Coordinator/RequestKeys select the sole existing
@@ -192,13 +192,14 @@ func (s *OperationService) RecoverOperation(ctx context.Context, r organization.
 }
 
 type operationInvocation struct {
-	state    *operationServiceState
-	service  *Service
-	intent   identity.RequestIntent
-	op       organization.Operation
-	original organization.Command
-	failure  error
-	prepare  func(context.Context, *Service, identity.CommandID) (organization.Command, error)
+	state                   *operationServiceState
+	service                 *Service
+	intent                  identity.RequestIntent
+	op                      organization.Operation
+	original                organization.Command
+	retainedPreparedCommand PreparedCommand
+	failure                 error
+	prepare                 func(context.Context, *Service, identity.CommandID) (organization.Command, error)
 }
 
 func (s *operationServiceState) compose(p *operationInvocation) (*Service, error) {
@@ -234,6 +235,14 @@ func (s *operationServiceState) compose(p *operationInvocation) (*Service, error
 }
 
 func (s *operationServiceState) keyed(ctx context.Context, auth organization.Authentication, op organization.Operation, key identity.IdempotencyKey, fields []identity.FeatureField, network string, prepare func(context.Context, *Service, identity.CommandID) (organization.Command, error)) (out organization.StoreResult, err error) {
+	return s.keyedPreparation(ctx, auth, op, key, fields, network, prepare, nil)
+}
+
+func (s *operationServiceState) keyedPrepared(ctx context.Context, auth organization.Authentication, op organization.Operation, key identity.IdempotencyKey, fields []identity.FeatureField, network string, prepare func(context.Context, *Service, identity.CommandID) (PreparedCommand, error)) (organization.StoreResult, error) {
+	return s.keyedPreparation(ctx, auth, op, key, fields, network, nil, prepare)
+}
+
+func (s *operationServiceState) keyedPreparation(ctx context.Context, auth organization.Authentication, op organization.Operation, key identity.IdempotencyKey, fields []identity.FeatureField, network string, prepare func(context.Context, *Service, identity.CommandID) (organization.Command, error), prepareNative func(context.Context, *Service, identity.CommandID) (PreparedCommand, error)) (out organization.StoreResult, err error) {
 	if !operationNetwork(network) {
 		return out, organization.ErrInvalidInput
 	}
@@ -254,6 +263,19 @@ func (s *operationServiceState) keyed(ctx context.Context, auth organization.Aut
 		return out, organization.ErrInvalidInput
 	}
 	p := &operationInvocation{state: s, intent: intent, op: op, prepare: prepare}
+	if prepareNative != nil {
+		p.prepare = func(ctx context.Context, service *Service, id identity.CommandID) (organization.Command, error) {
+			prepared, err := prepareNative(ctx, service, id)
+			if err != nil {
+				return organization.Command{}, err
+			}
+			if prepared.state == nil || prepared.state.owner != service {
+				return organization.Command{}, organization.ErrInvalidInput
+			}
+			p.retainedPreparedCommand = prepared
+			return prepared.state.core, nil
+		}
+	}
 	p.service, err = s.compose(p)
 	if err != nil {
 		return out, err
@@ -285,9 +307,15 @@ func (s *operationServiceState) keyed(ctx context.Context, auth organization.Aut
 	}
 	x, originalErr := p.original.Input()
 	if originalErr == nil && x.Binding == binding {
-		prepared, err := p.service.prepare(ctx, p.original, network)
-		if err != nil {
-			return operationCorrelation(binding), err
+		// Lifecycle's password-owned signed framing cannot be reconstructed by
+		// MapCommand. Keep the exact native preparation admitted for this key;
+		// discarded contenders and matching retries never execute their candidate.
+		prepared := p.retainedPreparedCommand
+		if prepared.state == nil {
+			prepared, err = p.service.prepare(ctx, p.original, network)
+			if err != nil {
+				return operationCorrelation(binding), err
+			}
 		}
 		return p.service.Execute(ctx, prepared)
 	}

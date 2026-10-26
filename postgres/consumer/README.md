@@ -26,3 +26,10 @@ Run ordinary parent-module tests separately. No new runner or workflow is needed
 These consumers prove their selected existing native profiles, not full M22,
 external lifecycle cascades or a stable organization release. See the
 [native adoption and security notes](../README.md).
+
+`TestOrganizationGenuineLifecycleOperationConsumer` proves original-key archive
+and fresh-proof restore after real signup, verification and password signin.
+It checks warm/current denial, invitation cancellation, surviving membership,
+original recovery, changed-input conflict, rollback, actual COMMIT-response loss,
+same-key contention and current authority/session withdrawal. Its selected
+request-admission callback grants no native owner or proof authority.

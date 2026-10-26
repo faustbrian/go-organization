@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add original-key `OperationService.Archive` and `Restore` through the existing
+  selected native password action-primary and lifecycle owners. Complete proof,
+  intent and lifecycle policy changes conflict; matching retries disclose only
+  the original outcome under current owner/session authority without renewing
+  proof, rate or command facts. Restore preserves terminal child denials. The
+  existing lifecycle and request-key migrations and matching action-primary
+  sources are required; no new journal, migration or HTTP route is introduced.
+
 - Add explicit transactional variants of the operation-lookup and invitation
   recipient-page index migrations for atomic migration-command composition.
   They retain exact index semantics with distinct names/checksums; existing

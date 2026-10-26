@@ -375,7 +375,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	if ownerID == memberID {
 		t.Fatal("real registrations did not create distinct users")
 	}
-	if invitationProfile == "lifecycle" {
+	if invitationProfile == "lifecycle" || invitationProfile == "lifecycle-operation" {
 		recipient, recipientID, signinRecipient, _ := register()
 		policy, e := fixtureAuthorization()
 		if e != nil {
@@ -385,13 +385,14 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		archive, restore := lifecyclePrimaries(t, source)
 		roles := customRoleConfig()
 		roles.TeamBindingsVersion = 1
-		fresh := func() *organizationpg.Service {
-			return consumerOrganizationServiceWithRoles(t, pool, sessions, profile, lookup, keys, material, roles, primary, archive, restore)
+		freshPool := func(selected *database.Pool) *organizationpg.Service {
+			return consumerOrganizationServiceWithRoles(t, selected, sessions, profile, lookup, keys, material, roles, primary, archive, restore)
 		}
-		lifecycle := &lifecycleConsumer{newService: fresh, member: member, memberID: memberID, proof: func(a organization.Authentication, op organization.Operation) auth.ReauthenticationProof {
+		fresh := func() *organizationpg.Service { return freshPool(pool) }
+		lifecycle := &lifecycleConsumer{newService: fresh, newServicePool: freshPool, member: member, memberID: memberID, proof: func(a organization.Authentication, op organization.Operation) auth.ReauthenticationProof {
 			return ownerProof(source, a, op)
 		}}
-		exerciseGenuineInvitations(t, ctx, pool, db, fresh(), sessions, profile, lookup, owner, recipient, ownerID, recipientID, origin, keys, material, signinRecipient, signinOwner, "lifecycle", lifecycle)
+		exerciseGenuineInvitations(t, ctx, pool, db, fresh(), sessions, profile, lookup, owner, recipient, ownerID, recipientID, origin, keys, material, signinRecipient, signinOwner, invitationProfile, lifecycle)
 		return
 	}
 	if invitationProfile == "team-role" {

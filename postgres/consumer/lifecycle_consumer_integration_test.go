@@ -21,10 +21,11 @@ func TestOrganizationGenuineLifecycleConsumer(t *testing.T) {
 }
 
 type lifecycleConsumer struct {
-	newService func() *organizationpg.Service
-	proof      func(organization.Authentication, organization.Operation) auth.ReauthenticationProof
-	member     organization.Authentication
-	memberID   identity.UserID
+	newService     func() *organizationpg.Service
+	newServicePool func(*database.Pool) *organizationpg.Service
+	proof          func(organization.Authentication, organization.Operation) auth.ReauthenticationProof
+	member         organization.Authentication
+	memberID       identity.UserID
 }
 
 // All three accounts, sessions, action proofs and invitation capabilities are
