@@ -369,6 +369,12 @@ after callbacks before disclosing metadata. No arbitrary subject, selection,
 new schema, cursor-signing owner or application-written store is required.
 See [listing semantics](../docs/list-organizations.md).
 
+`OperationService.ListOrganizations` delegates this same current-user read to
+its source without request-key admission or organization allocation. Limit is
+explicitly required (1..200, no default); a returned cursor is at most 512 bytes
+and belongs only to that tenant, subject and policy. Current authority remains
+mandatory; empty/end pages invent no continuation and errors disclose no page.
+
 Preparation can return preliminary root-policy errors such as `ErrLastOwner`.
 Invariant denials discovered inside protected execution (quota or last-owner)
 return the generic root `ErrForbidden` with `NotCommitted`; the native command

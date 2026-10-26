@@ -20,6 +20,16 @@ func (s *Service) ListOrganizations(ctx context.Context, request organization.Li
 	return s.core.ListOrganizations(ctx, request)
 }
 
+// ListOrganizations delegates the current authenticated subject's bounded
+// listing to the borrowed source Service. Limit remains explicitly required;
+// no request-key admission, organization allocation or authority cache is added.
+func (s *OperationService) ListOrganizations(ctx context.Context, request organization.ListOrganizationsRequest) (organization.ListOrganizationsResult, error) {
+	if s == nil || s.state == nil {
+		return organization.ListOrganizationsResult{}, organization.ErrInvalidInput
+	}
+	return s.state().source.ListOrganizations(ctx, request)
+}
+
 // ReadOrganizations is a trusted current primary projection, not an
 // authentication endpoint. MaximumRows is the selected per-user cap (1..1000);
 // one additional matching candidate detects cap violations without false EOF.

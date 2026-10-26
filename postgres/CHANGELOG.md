@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Expose existing current-user organization listing through `OperationService`
+  without request-key admission or organization allocation. Explicit page limits,
+  scope-bound continuations, current membership/authority and policy filtering
+  remain owned by the existing source; no query or listing semantics change.
+
 - Add current-session advisory slug availability through both native service
   and primary tenant-local occupancy reader, without membership requirements or
   organization metadata. Archived rows still occupy their slug; other tenants
