@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add original-key `OperationService.CreateTeam` over the existing native team
+  owner. The chosen canonical team ID, exact organization version and bounded
+  name remain fixed; creation adds no members. Matching retries classify only
+  the original command under current manager/session authority, while changed
+  intent conflicts and unknown outcomes never execute again. Existing team
+  limits, atomic organization-epoch/audit/outbox effects and explicit APIs remain
+  unchanged. Use the existing request-key/preparation migrations; no new journal,
+  migration or HTTP route is introduced.
+
 - Add natural-repeat `InvitationService.Expire` for exact invitation/organization
   versions and the existing registered reason allowlist, with internally owned
   command identity. Matching repeats recover only actual original receipts under

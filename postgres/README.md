@@ -1,5 +1,24 @@
 # go-organization/postgres
 
+## Original-key team creation
+
+`OperationService.CreateTeam(ctx, organization.CreateTeamOperationRequest,
+trustedCanonicalClientIP)` creates one empty team through the existing native
+team owner. Select the existing team profile/migration and the operation facade's
+existing request-key/preparation migrations. The request supplies the chosen
+canonical team ID, exact organization version, bounded name and one opaque key;
+it supplies no command ID, actor override or team membership. Current genuine
+manager/session, action policy, quotas and atomic team/organization-epoch/audit/
+outbox effects remain native. No additional migration or receipt store is added.
+
+Matching key/intent retries, including a reconstructed facade or fresh current
+session, classify only the original command under current disclosure authority.
+Changed team ID, name or organization version conflicts. Unknown results retain
+original correlation and never authorize another execution. Existing
+`RecoverOperation` accepts the exact saved self-actor team-create binding; raw
+`PrepareCreateTeam`, `Execute` and legacy `Recover` remain unchanged. This native
+selection alone enables no HTTP route or Reference feature.
+
 Experimental native PostgreSQL composition for the root module's explicit-
 organization membership profile. The existing identity Coordinator exclusively
 owns transactions, command IDs, reservations, replay and scoped recovery.
