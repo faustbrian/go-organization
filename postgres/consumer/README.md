@@ -23,6 +23,12 @@ genuine journey with `GOWORK=off`, its existing
 the published adapter pins and is not public-consumer evidence.
 Run ordinary parent-module tests separately. No new runner or workflow is needed.
 
+`TestOrganizationGenuineSlugAvailabilityConsumer` uses signup-issued sessions
+for a nonmember's advisory free/taken read around an actual owner create. It
+proves tenant mismatch and native public signout denial without withdrawing an
+independent owner's session; availability neither grants discovery/membership
+nor reserves the candidate. No application store or authentication is replaced.
+
 These consumers prove their selected existing native profiles, not full M22,
 external lifecycle cascades or a stable organization release. See the
 [native adoption and security notes](../README.md).

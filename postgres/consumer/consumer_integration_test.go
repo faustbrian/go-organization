@@ -432,6 +432,14 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	service := consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+	if invitationProfile == "slug-available" {
+		logout, err := graph.features.Sessions()
+		if err != nil {
+			t.Fatal("genuine session owner unavailable", err)
+		}
+		exerciseGenuineSlugAvailability(t, ctx, service, owner, member, logout)
+		return
+	}
 	if strings.HasPrefix(invitationProfile, "direct-") {
 		exerciseGenuineDirectOperations(t, ctx, pool, db, service, owner, member, ownerID, memberID, keys, material, invitationProfile, func(p *database.Pool) *organizationpg.Service {
 			return consumerOrganizationService(t, p, sessions, profile, lookup, keys, material)
