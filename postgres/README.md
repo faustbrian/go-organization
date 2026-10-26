@@ -10,6 +10,24 @@ not depend on Reference or the organization HTTP leaf. Native-only fixtures and
 unit/integration tests remain here; the genuine consumers retain their existing
 entrypoints and assertions against normal published adapter pins.
 
+## Advisory slug availability
+
+`Service.SlugAvailable(ctx, organization.SlugAvailableRequest)` authenticates the
+current verified session and explicit `identity.organization.slug-available`
+policy on the tenant-local `organization.slug` candidate. Membership and
+management authority are not required. The result contains only `Available`,
+never organization metadata or an ID. Policy, primary occupancy, current session
+and original freshness are rechecked; failures disclose no availability.
+`OperationService.SlugAvailable` delegates this same read to its existing source
+service without request-key admission or organization/command allocation.
+
+`Repository.ReadOrganizationSlug` implements the root's optional trusted storage
+projection using the existing primary `UNIQUE(tenant_id,slug)` occupancy rule.
+Archived rows remain occupied; rows in another tenant do not collide. No new
+migration, cache, reservation or transaction owner is added. A true result is
+advisory only: competing creates or updates may take the slug, and their native
+uniqueness checks remain authoritative. No HTTP route is enabled by this API.
+
 ## Explicit transactional index migrations
 
 `OperationLookupTransactionalMigrationSource` and

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add current-session advisory slug availability through both native service
+  and primary tenant-local occupancy reader, without membership requirements or
+  organization metadata. Archived rows still occupy their slug; other tenants
+  do not collide. Policy/session/source withdrawal and outages fail closed;
+  the read never reserves a candidate or replaces create/update uniqueness.
+  Existing migrations and transaction ownership are unchanged.
+
 - Add initiating natural-repeat `InvitationService.Reject` with owner-allocated
   commands and exact original rejection metadata under current verified intended
   recipient/session authority. No key, caller command ID, proof, membership or
