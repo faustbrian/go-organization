@@ -28,6 +28,7 @@ import (
 	"github.com/faustbrian/go-identity/delivery"
 	deliverypg "github.com/faustbrian/go-identity/delivery/postgres"
 	kernel "github.com/faustbrian/go-identity/postgres"
+	"github.com/faustbrian/go-identity/reference"
 	"github.com/faustbrian/go-identity/risk"
 	riskpg "github.com/faustbrian/go-identity/risk/postgres"
 	"github.com/faustbrian/go-identity/session"
@@ -44,7 +45,7 @@ import (
 // The caller has just registered, confirmed and signed in both users through
 // actual public identity HTTP/services. This continuation reuses those exact
 // primary users and sessions, never SQL-created credentials or proof JSON.
-func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, selectedProfile string, lifecycle *lifecycleConsumer, administrators ...invitationResendAdministrator) {
+func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *database.Pool, db *sql.DB, organizations *organizationpg.Service, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, owner, recipient organization.Authentication, ownerID, recipientID identity.UserID, origin string, keys map[string][32]byte, material func(string) []byte, signinRecipient, signinOwner func() organization.Authentication, selectedProfile string, lifecycle *lifecycleConsumer, expiryLogout reference.SessionService, administrators ...invitationResendAdministrator) {
 	t.Helper()
 	readSteps, err := (organizationpg.InvitationMigrationSource{Version: 7001}).Load(ctx)
 	if err != nil {
@@ -147,7 +148,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		_, err := identity.ParseSubjectID(string(id))
 		return errors.Join(ctx.Err(), err)
 	}}, Invitation: organization.InvitationConfig{Audience: "organization-invitation", Lifetime: 48 * time.Hour, MaximumPending: 100}, Admission: organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000}, Sessions: sessions, Authorization: policy, Coordinator: coordinator, Risk: counters, Issuer: issuerpg.IssuerConfig{Crypto: capability.ServiceConfig{Issuer: origin, Signer: signer, Resolver: resolver, Clock: time.Now, Limits: limits}, Audience: "organization-invitation", CurrentReplayKeyVersion: 1, RetainedReplayKeys: map[uint32][32]byte{1: keys["capability-replay"]}, PreparationTimeout: time.Second}, Preparation: issuerpg.IssuancePreparationConfig{Deployment: "organization-invitation", ActiveEnvelopeKey: "capability-envelope", EnvelopeKeys: map[string][]byte{"capability-envelope": material("capability-envelope")}, VerificationKeys: []issuerpg.PreparationVerificationKey{{ID: "local-baseline", HMAC: material("capability-signing")}}, Clock: time.Now}, Delivery: organizationpg.InvitationDeliveryConfig{Owner: deliverer, Status: status, Renderer: renderer, Policy: deliveryPolicy, PolicyVersion: 2, ProviderVersion: 2, StatusPolicyVersion: 9, TemplateID: "organization-invitation", TemplateVersion: 1, LocaleChain: []string{"en"}, ScopeKey: keys["verification-scope"], Endpoint: origin + "/invitation"}}
-	if selectedProfile == "expire" || selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
+	if selectedProfile == "expire" || selectedProfile == "expire-operation" || selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		configuration.Invitation.ExpirationReasons = []identity.PolicyReason{"security-withdrawal", "administrative-cleanup"}
 	}
 	service, err := organizationpg.NewInvitationService(repository, configuration)
@@ -241,7 +242,7 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 		}
 		return sendInvitation(organization.ID(o), 1)
 	}
-	if selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "cancel-operation" || strings.HasPrefix(selectedProfile, "reject-operation") || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
+	if selectedProfile == "resend" || selectedProfile == "resend-operation" || selectedProfile == "cancel-operation" || selectedProfile == "expire-operation" || strings.HasPrefix(selectedProfile, "reject-operation") || selectedProfile == "lifecycle" || selectedProfile == "lifecycle-operation" {
 		populated := issue("resend-populated")
 		var history migrationList
 		for _, source := range []migrations.Source{organizationpg.MigrationSource{Version: 7000}, organizationpg.InvitationMigrationSource{Version: 7001}, organizationpg.InvitationCapabilityMigrationSource{Version: 7002}, organizationpg.TeamMigrationSource{Version: 7003}, organizationpg.TeamLifecycleMigrationSource{Version: 7004}, organizationpg.InvitationCancellationMigrationSource{Version: 7005}, organizationpg.InvitationRecipientIndexMigrationSource{Version: 7006}, organizationpg.InvitationRejectionMigrationSource{Version: 7007}, organizationpg.InvitationExpiryMigrationSource{Version: 7008}, organizationpg.InvitationResendMigrationSource{Version: 7009}} {
@@ -286,6 +287,8 @@ func exerciseGenuineInvitations(t *testing.T, ctx context.Context, pool *databas
 			exerciseInvitationRejectOperations(t, f, db, strings.TrimPrefix(selectedProfile, "reject-operation"))
 		} else if selectedProfile == "cancel-operation" {
 			exerciseInvitationCancelOperations(t, f, db)
+		} else if selectedProfile == "expire-operation" {
+			exerciseInvitationExpireOperations(t, f, db, expiryLogout)
 		} else if selectedProfile == "resend-operation" {
 			exerciseInvitationResendOperations(t, f, db, keys, material)
 		} else {

@@ -58,6 +58,14 @@ atomic rollback, final COMMIT-response loss and competing cancellation/acceptanc
 The populated optional migration preserves raw cancellation and never invents
 missing original organization-version correlation for legacy effects.
 
+`TestOrganizationGenuineInvitationExpireOperationConsumer` proves natural-repeat
+manager expiry after actual signup, verification and password signin. It covers
+registered original reasons/versions, legacy NULL history, predecessor proof
+denial, reconstructed/fresh-session original recovery, changed-intent and current
+authority denials, atomic audit/outbox rollback, COMMIT-response loss and competing
+expiry/acceptance. The optional migration never invents legacy correlation and
+expiry does not advance membership or organization authority.
+
 `TestOrganizationGenuineLifecycleOperationConsumer` proves original-key archive
 and fresh-proof restore after real signup, verification and password signin.
 It checks warm/current denial, invitation cancellation, surviving membership,

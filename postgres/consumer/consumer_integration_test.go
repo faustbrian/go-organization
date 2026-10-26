@@ -402,7 +402,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	var resendAdministrator invitationResendAdministrator
-	if invitationProfile == "resend" || invitationProfile == "resend-operation" || invitationProfile == "cancel-operation" || strings.HasPrefix(invitationProfile, "reject-operation") {
+	if invitationProfile == "resend" || invitationProfile == "resend-operation" || invitationProfile == "cancel-operation" || invitationProfile == "expire-operation" || strings.HasPrefix(invitationProfile, "reject-operation") {
 		resendAdministrator.authentication, resendAdministrator.id, resendAdministrator.signin, _ = register()
 	}
 	if ownerID == memberID {
@@ -425,7 +425,7 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		lifecycle := &lifecycleConsumer{newService: fresh, newServicePool: freshPool, member: member, memberID: memberID, proof: func(a organization.Authentication, op organization.Operation) auth.ReauthenticationProof {
 			return ownerProof(source, a, op)
 		}}
-		exerciseGenuineInvitations(t, ctx, pool, db, fresh(), sessions, profile, lookup, owner, recipient, ownerID, recipientID, origin, keys, material, signinRecipient, signinOwner, invitationProfile, lifecycle)
+		exerciseGenuineInvitations(t, ctx, pool, db, fresh(), sessions, profile, lookup, owner, recipient, ownerID, recipientID, origin, keys, material, signinRecipient, signinOwner, invitationProfile, lifecycle, nil)
 		return
 	}
 	if invitationProfile == "team-role" {
@@ -545,11 +545,18 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	if invitationProfile != "existing" {
-		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile, nil, resendAdministrator)
+		var expiryLogout reference.SessionService
+		if invitationProfile == "expire-operation" {
+			expiryLogout, e = graph.features.Sessions()
+			if e != nil {
+				t.Fatal(e)
+			}
+		}
+		exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, invitationProfile, nil, expiryLogout, resendAdministrator)
 		return
 	}
 	exerciseGenuineMetadata(t, ctx, service, owner, member, memberID)
-	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, "existing", nil)
+	exerciseGenuineInvitations(t, ctx, pool, db, service, sessions, profile, lookup, owner, member, ownerID, memberID, origin, keys, material, signinRecipient, trackOwnerSignin, "existing", nil, nil)
 	exerciseGenuineTeams(t, ctx, db, service, owner, member, recoveryOwner, memberID)
 	exerciseGenuineSelfLeave(t, ctx, service, owner, member, memberID, signinRecipient)
 	exerciseGenuineOrganizationList(t, ctx, service, owner, member, memberID)
