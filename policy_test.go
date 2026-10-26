@@ -81,6 +81,11 @@ func policyFixture(t *testing.T, selectedTeams ...organization.TeamConfig) (*org
 
 func policyFixtureConfig(t *testing.T, teams organization.TeamConfig, domains organization.DomainConfig, selectedRoles ...organization.DynamicRoleConfig) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
 	t.Helper()
+	return policyFixtureRepository(t, teams, domains, nil, selectedRoles...)
+}
+
+func policyFixtureRepository(t *testing.T, teams organization.TeamConfig, domains organization.DomainConfig, wrap func(*policyReader, *policyOwner) organization.Repository, selectedRoles ...organization.DynamicRoleConfig) (*organization.Service, organization.Authentication, *policyClock, *policyOwner, *recordingPolicy) {
+	t.Helper()
 	c := &policyClock{now: time.Date(2026, 10, 18, 12, 0, 1, 0, time.UTC)}
 	remember, err := session.ResolveRememberPolicy(session.BrowserSession, session.LifetimeConfig{Default: session.BrowserSession, AbsoluteTTL: time.Hour, IdleTTL: time.Hour, RefreshAfter: time.Minute, FreshFor: time.Hour})
 	if err != nil {
@@ -123,7 +128,11 @@ func policyFixtureConfig(t *testing.T, teams organization.TeamConfig, domains or
 	if len(selectedRoles) > 0 {
 		roles = selectedRoles[0]
 	}
-	service, err := organization.NewService(sessions, owner, policy, organization.Config{Clock: c, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
+	var repository organization.Repository = owner
+	if wrap != nil {
+		repository = wrap(r, owner)
+	}
+	service, err := organization.NewService(sessions, repository, policy, organization.Config{Clock: c, MaximumDuration: time.Second, PolicyID: "organization", PolicyVersion: 1, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DynamicRoles: roles, ValidateCanonicalID: func(context.Context, organization.ID) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -118,6 +118,21 @@ while protecting the last owner.
 
 ## API and selection
 
+`Service.SlugAvailable` checks a candidate in the authenticated session's tenant
+without requiring organization membership or management permission. The explicit
+`identity.organization.slug-available` policy evaluates the authenticated human
+and `organization.slug` candidate resource. The result contains only `Available`;
+it reveals no organization ID or metadata and neither reserves the slug nor
+promises a later create/update will succeed. Slugs retain create/update's
+lowercase ASCII label syntax (1..63 bytes, no leading/trailing hyphen).
+
+Repositories opt in through additive `OrganizationSlugReader`, leaving existing
+`Repository` implementations compatible. Readers use current primary occupancy
+for the exact tenant/candidate, including archived rows that still occupy the
+tenant's unique slug. Other tenants do not collide. The service rechecks policy,
+source, current session and original freshness; errors or changed authority
+return no availability. This core API alone adds no native adapter or HTTP route.
+
 `LifecycleConfig` selects [native owner archive/restore](docs/lifecycle.md).
 Current owners supply a fresh action-bound password proof and exact discovered
 organization version. Archive denies native child authority and cancels pending

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add session-authenticated advisory slug availability in the current tenant,
+  without membership or management requirements, organization metadata or a
+  reservation promise. Optional `OrganizationSlugReader` preserves existing
+  repositories; current policy/session/source checks deny on withdrawal,
+  outage or expired original authority. Native readers must include archived
+  rows in tenant-local occupancy; create/update uniqueness remains authoritative.
+
 - Add a neutral natural-repeat invitation-rejection request without a client key,
   caller command or invitation proof. Repetition requires actual original
   metadata and current verified intended-recipient authority, not membership or
