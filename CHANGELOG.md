@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add neutral original-key direct custom-role assignment and natural exact-binding
+  revocation requests without caller commands. Exact organization, role, target,
+  membership and binding intent retains raw version semantics; revocation requires
+  a positive binding epoch. Original recovery syntax admits actual nonself
+  targets without granting authority. Credential/key/intent export is denied;
+  tombstones alone prove no successful outcome. Existing raw role APIs remain
+  unchanged; these contracts alone enable no durable workflow or HTTP route.
+
 - Add neutral original-key custom-role create/update and natural exact-version
   terminal-delete requests without caller commands. Ordered statement intent
   retains existing intrinsic bounds; catalog membership and current authority

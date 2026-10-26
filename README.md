@@ -2,6 +2,18 @@
 
 ## Transport-neutral direct-operation requests
 
+`AssignDynamicRoleOperationRequest` retains an original key, exact organization,
+custom-role and target IDs, plus organization/role/current-membership/binding
+epochs. Zero binding version selects first assignment; revocation requires a
+positive binding version through `RevokeDynamicRoleOperationRequest`, without
+a key or caller command. Membership is an observed positive epoch, not incremented
+by a binding mutation. Original target recovery may be nonself. Syntax grants
+no permission, and tombstones/absence alone prove no prior success. Current
+native role-action, manager/session, original-query and exact-binding fences
+remain authoritative; unknown outcomes never authorize redispatch. These
+neutral custody-redacted contracts enable no durable workflow, team-binding
+facade or HTTP route; raw direct/team role APIs are unchanged.
+
 `CreateDynamicRoleOperationRequest` and `UpdateDynamicRoleOperationRequest`
 retain one original key, chosen organization/role IDs, exact epochs and complete
 ordered name/statements intent. `DeleteDynamicRoleOperationRequest` naturally
