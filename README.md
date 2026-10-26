@@ -31,6 +31,19 @@ Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
 are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
 
+`LeaveMemberOperationRequest` selects only the authenticated human's own
+membership at an exact original organization version. It contains no target,
+idempotency key or caller command ID; the native owner must capture the member
+version and allocate the command. Natural repetition must reconcile actual
+original metadata, never infer success from absent membership, replay unknown
+work or remove a readmitted membership through old intent.
+`OperationRecoveryRequest` admits exact self-leave bindings for metadata-only
+recovery; syntax grants neither current-principal nor disclosure authority.
+The native owner must enforce current verified self-session and action policy
+without treating the removed membership as a renewed grant. Existing
+`LeaveRequest`, explicit preparation and legacy native recovery are unchanged;
+these neutral contracts alone add no durable workflow or HTTP route.
+
 `LifecycleOperationRequest` carries one required initiating key for owner-only
 archive or restore at an exact organization version, a required visible-ASCII
 reason and bounded correlation, and the complete original action-bound password

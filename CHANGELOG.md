@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a neutral natural-repeat self-leave request and exact-self original-outcome
+  recovery syntax, without a target, key or caller command ID. Bounded validation
+  and redacted custody grant no execution or disclosure authority. Existing
+  explicit leave and legacy recovery APIs remain unchanged; these contracts
+  alone enable no native workflow or HTTP route.
+
 - Add session-authenticated advisory slug availability in the current tenant,
   without membership or management requirements, organization metadata or a
   reservation promise. Optional `OrganizationSlugReader` preserves existing
