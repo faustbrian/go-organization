@@ -105,7 +105,8 @@ AND operation='identity.organization.team.member-remove' AND remove_team_id IS N
 LIMIT 2`
 
 func (s *operationServiceState) teamMemberRemovalOutcome(ctx context.Context, r organization.RemoveTeamMemberOperationRequest, actor identity.UserID) (organization.StoreResult, bool, error) {
-	if err := s.teamMemberRemovalAdmission(ctx, r, actor); err != nil {
+	admitted, err := s.teamMemberRemovalAdmission(ctx, r, actor)
+	if err != nil {
 		return organization.StoreResult{}, false, err
 	}
 	rows, err := s.source.participant.repository.pool.Raw().Query(ctx, teamMemberRemovalOperationLookupSQL, string(r.Authentication.TenantID), string(r.OrganizationID), strconv.FormatUint(r.OrganizationVersion, 10))
@@ -133,22 +134,27 @@ func (s *operationServiceState) teamMemberRemovalOutcome(ctx context.Context, r 
 	if _, err := identity.ParseCommandID(string(id)); err != nil {
 		return organization.StoreResult{}, false, organization.ErrUnavailable
 	}
-	if team != string(r.TeamID) || teamVersion != strconv.FormatUint(r.TeamVersion, 10) || admissionVersion != strconv.FormatUint(r.OrganizationMemberVersion, 10) || bindingVersion != strconv.FormatUint(r.MembershipVersion, 10) || originalActor != string(actor) || target != string(r.UserID) {
-		return organization.StoreResult{}, false, organization.ErrConflict
-	}
 	service, err := s.compose(nil)
 	if err != nil {
 		return organization.StoreResult{}, false, err
 	}
 	service.participant.naturalTeamRemove = true
-	query := identity.RecoveryQuery{CommandID: id, TenantID: r.Authentication.TenantID, UserID: r.UserID, ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, OperationID: string(organization.RemoveTeamMember), RecordID: string(r.OrganizationID)}
-	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Coordinator.QueryPolicy.PolicyVersion), CorrelationID: r.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(r.Authentication.TenantID), Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(actor)}, Action: authorization.Action(organization.RemoveTeamMember), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(r.UserID)}}}
+	query := identity.RecoveryQuery{CommandID: id, TenantID: r.Authentication.TenantID, UserID: identity.UserID(target), ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, OperationID: string(organization.RemoveTeamMember), RecordID: string(r.OrganizationID)}
+	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Coordinator.QueryPolicy.PolicyVersion), CorrelationID: r.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(r.Authentication.TenantID), Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(actor)}, Action: authorization.Action(organization.RemoveTeamMember), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(target)}}}
 	original, err := service.config.Coordinator.QueryCommand(ctx, query, caller)
 	if err != nil {
 		return organization.StoreResult{}, false, operationError(ctx, err)
 	}
+	// Query callbacks may withdraw the original native observation; do not
+	// classify its history under renewed or merely pre-query authority.
+	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
+		return organization.StoreResult{}, false, err
+	}
 	if original.Validate() != nil || original.Binding.ValidateFor(organization.RemoveTeamMember.Descriptor()) != nil || original.Feature == nil || *original.Feature != organization.RemoveTeamMember.Descriptor() {
 		return organization.StoreResult{}, false, organization.ErrUnavailable
+	}
+	if team != string(r.TeamID) || teamVersion != strconv.FormatUint(r.TeamVersion, 10) || admissionVersion != strconv.FormatUint(r.OrganizationMemberVersion, 10) || bindingVersion != strconv.FormatUint(r.MembershipVersion, 10) || originalActor != string(actor) || target != string(r.UserID) {
+		return organization.StoreResult{}, false, organization.ErrConflict
 	}
 	out, err := service.Recover(ctx, r.Authentication, Recovery{Binding: original.Binding})
 	if err != nil {
@@ -160,6 +166,11 @@ func (s *operationServiceState) teamMemberRemovalOutcome(ctx context.Context, r 
 	// Check the current exact admission after all disclosure callbacks. Historical
 	// recovery is not permission to reach a newer binding or readmitted subject.
 	current, err := s.source.participant.repository.Read(ctx, organization.Query{Operation: organization.RemoveTeamMember, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID, TeamID: r.TeamID, TargetID: r.UserID})
+	// Terminal IO can outlive admission. Fence the same original observation
+	// after it, keeping current native authority last without renewing validity.
+	if admissionErr := s.source.revalidateRecovery(ctx, admitted); admissionErr != nil {
+		return organization.StoreResult{}, false, admissionErr
+	}
 	if err != nil {
 		return organization.StoreResult{}, false, err
 	}
@@ -174,44 +185,47 @@ func (s *operationServiceState) teamMemberRemovalOutcome(ctx context.Context, r 
 // fence the same original observation around that callback before classification.
 // This binding contains decision scope only: no command ID, claim or execution
 // authority is invented, persisted, queried or exported.
-func (s *operationServiceState) teamMemberRemovalAdmission(ctx context.Context, r organization.RemoveTeamMemberOperationRequest, actor identity.UserID) error {
+func (s *operationServiceState) teamMemberRemovalAdmission(ctx context.Context, r organization.RemoveTeamMemberOperationRequest, actor identity.UserID) (*recoveryInput, error) {
 	token, err := session.ParseToken(r.Authentication.Bearer.Token())
 	if err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	credential, err := session.NewCredential(session.CredentialBearer, token)
 	if err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	observed, err := s.source.config.Sessions.Get(ctx, session.GetRequest{TenantID: r.Authentication.TenantID, Credential: credential})
 	if err != nil {
-		return operationError(ctx, err)
+		return nil, operationError(ctx, err)
 	}
 	if observed.ValidateAt(s.source.config.Core.Clock.Now()) != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	bound, err := observed.Session.Bindings()
 	if err != nil || bound.TenantID != r.Authentication.TenantID || bound.UserID != actor {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	b := identity.CommandBinding{TenantID: r.Authentication.TenantID, ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, UserID: r.UserID, OperationID: string(organization.RemoveTeamMember), RecordID: string(r.OrganizationID), CorrelationID: r.CorrelationID}
 	actorBinding := b
 	actorBinding.UserID = actor
 	if _, _, _, err := sessionpg.OriginalSessionAdmission(s.source.participant.config.Profile, observed.Session, actorBinding); err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	view, err := s.source.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	admitted := &recoveryInput{binding: b, observed: observed, credential: credential, organization: view.Organization, member: view.Actor}
 	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
-		return err
+		return nil, err
 	}
 	if err := s.source.authorizeUpdateRecovery(ctx, b, view); err != nil {
-		return err
+		return nil, err
 	}
-	return s.source.revalidateRecovery(ctx, admitted)
+	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
+		return nil, err
+	}
+	return admitted, nil
 }
 
 func (p *Contributor) teamMemberRemovalEffect(ctx context.Context, w kernel.Work, c nativeCommand, fingerprint []byte) (identity.FeatureReceipt, error) {

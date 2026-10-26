@@ -93,7 +93,8 @@ AND operation='identity.organization.team.delete' AND delete_team_id IS NOT NULL
 LIMIT 2`
 
 func (s *operationServiceState) teamDeleteOperationOutcome(ctx context.Context, r organization.DeleteTeamOperationRequest, actor identity.UserID) (organization.StoreResult, bool, error) {
-	if err := s.teamDeleteOperationAdmission(ctx, r, actor); err != nil {
+	admitted, err := s.teamDeleteOperationAdmission(ctx, r, actor)
+	if err != nil {
 		return organization.StoreResult{}, false, err
 	}
 	rows, err := s.source.participant.repository.pool.Raw().Query(ctx, teamDeleteOperationLookupSQL, string(r.Authentication.TenantID), string(r.OrganizationID), strconv.FormatUint(r.OrganizationVersion, 10))
@@ -121,22 +122,27 @@ func (s *operationServiceState) teamDeleteOperationOutcome(ctx context.Context, 
 	if _, err := identity.ParseCommandID(string(id)); err != nil {
 		return organization.StoreResult{}, false, organization.ErrUnavailable
 	}
-	if team != string(r.TeamID) || version != strconv.FormatUint(r.TeamVersion, 10) || originalActor != string(actor) || user != string(actor) {
-		return organization.StoreResult{}, false, organization.ErrConflict
-	}
 	service, err := s.compose(nil)
 	if err != nil {
 		return organization.StoreResult{}, false, err
 	}
 	service.participant.naturalTeamDelete = true
-	query := identity.RecoveryQuery{CommandID: id, TenantID: r.Authentication.TenantID, ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, UserID: actor, OperationID: string(organization.DeleteTeam), RecordID: string(r.OrganizationID)}
-	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Coordinator.QueryPolicy.PolicyVersion), CorrelationID: r.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(r.Authentication.TenantID), Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(actor)}, Action: authorization.Action(organization.DeleteTeam), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(actor)}}}
+	query := identity.RecoveryQuery{CommandID: id, TenantID: r.Authentication.TenantID, ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, UserID: identity.UserID(user), OperationID: string(organization.DeleteTeam), RecordID: string(r.OrganizationID)}
+	caller := authorization.DecisionContext{PolicyRevision: authorization.Revision(s.config.Coordinator.QueryPolicy.PolicyVersion), CorrelationID: r.CorrelationID, Request: authorization.Request{Tenant: authorization.TenantID(r.Authentication.TenantID), Subject: authorization.Subject{Kind: authorization.SubjectUser, ID: authorization.SubjectID(actor)}, Action: authorization.Action(organization.DeleteTeam), Resource: authorization.Resource{Type: "identity.user", ID: authorization.ResourceID(user)}}}
 	original, err := service.config.Coordinator.QueryCommand(ctx, query, caller)
 	if err != nil {
 		return organization.StoreResult{}, false, operationError(ctx, err)
 	}
+	// Query callbacks may withdraw the original native observation; do not
+	// classify its history under renewed or merely pre-query authority.
+	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
+		return organization.StoreResult{}, false, err
+	}
 	if original.Validate() != nil || original.Binding.ValidateFor(organization.DeleteTeam.Descriptor()) != nil || original.Feature == nil || *original.Feature != organization.DeleteTeam.Descriptor() {
 		return organization.StoreResult{}, false, organization.ErrUnavailable
+	}
+	if team != string(r.TeamID) || version != strconv.FormatUint(r.TeamVersion, 10) || originalActor != string(actor) || user != string(actor) {
+		return organization.StoreResult{}, false, organization.ErrConflict
 	}
 	out, err := service.Recover(ctx, r.Authentication, Recovery{Binding: original.Binding})
 	if err != nil {
@@ -148,6 +154,11 @@ func (s *operationServiceState) teamDeleteOperationOutcome(ctx context.Context, 
 	var retired string
 	var live bool
 	err = s.source.participant.repository.pool.Raw().QueryRow(ctx, `SELECT deleted_version::text,EXISTS(SELECT 1 FROM organization.teams t WHERE t.tenant_id=i.tenant_id AND t.organization_id=i.organization_id AND t.team_id=i.team_id) FROM organization.team_identities i WHERE tenant_id=$1 AND organization_id=$2 AND team_id=$3`, string(r.Authentication.TenantID), string(r.OrganizationID), string(r.TeamID)).Scan(&retired, &live)
+	// Terminal IO can outlive admission. Fence the same original observation
+	// after it, keeping current native authority last without renewing validity.
+	if admissionErr := s.source.revalidateRecovery(ctx, admitted); admissionErr != nil {
+		return organization.StoreResult{}, false, admissionErr
+	}
 	if err != nil {
 		return organization.StoreResult{}, false, operationError(ctx, err)
 	}
@@ -160,42 +171,45 @@ func (s *operationServiceState) teamDeleteOperationOutcome(ctx context.Context, 
 // This is admission metadata only, never an invented command or authority. Use
 // the actual session owner and existing native revalidation/action owner before
 // classifying even a changed selector, then retain the normal query fences.
-func (s *operationServiceState) teamDeleteOperationAdmission(ctx context.Context, r organization.DeleteTeamOperationRequest, actor identity.UserID) error {
+func (s *operationServiceState) teamDeleteOperationAdmission(ctx context.Context, r organization.DeleteTeamOperationRequest, actor identity.UserID) (*recoveryInput, error) {
 	token, err := session.ParseToken(r.Authentication.Bearer.Token())
 	if err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	credential, err := session.NewCredential(session.CredentialBearer, token)
 	if err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	observed, err := s.source.config.Sessions.Get(ctx, session.GetRequest{TenantID: r.Authentication.TenantID, Credential: credential})
 	if err != nil {
-		return operationError(ctx, err)
+		return nil, operationError(ctx, err)
 	}
 	if observed.ValidateAt(s.source.config.Core.Clock.Now()) != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	bound, err := observed.Session.Bindings()
 	if err != nil || bound.UserID != actor || bound.TenantID != r.Authentication.TenantID {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	b := identity.CommandBinding{TenantID: r.Authentication.TenantID, ActorID: identity.ActorID(actor), ActorKind: authorization.SubjectUser, UserID: actor, OperationID: string(organization.DeleteTeam), RecordID: string(r.OrganizationID), CorrelationID: r.CorrelationID}
 	if _, _, _, err := sessionpg.OriginalSessionAdmission(s.source.participant.config.Profile, observed.Session, b); err != nil {
-		return organization.ErrForbidden
+		return nil, organization.ErrForbidden
 	}
 	view, err := s.source.participant.repository.Read(ctx, organization.Query{Operation: organization.Get, TenantID: r.Authentication.TenantID, ActorID: actor, OrganizationID: r.OrganizationID})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	admitted := &recoveryInput{binding: b, observed: observed, credential: credential, organization: view.Organization, member: view.Actor}
 	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
-		return err
+		return nil, err
 	}
 	if err := s.source.authorizeUpdateRecovery(ctx, b, view); err != nil {
-		return err
+		return nil, err
 	}
-	return s.source.revalidateRecovery(ctx, admitted)
+	if err := s.source.revalidateRecovery(ctx, admitted); err != nil {
+		return nil, err
+	}
+	return admitted, nil
 }
 
 func (p *Contributor) teamDeleteOperationEffect(ctx context.Context, w kernel.Work, c nativeCommand, fingerprint []byte) (identity.FeatureReceipt, error) {

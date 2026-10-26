@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Require actual original outcome-query authorization before classifying changed
+  natural role/team-delete or team-member-removal selectors. Revalidate the same
+  original native session, membership and scoped authority after final terminal
+  or binding reads, so delayed IO and policy callbacks cannot disclose history
+  after withdrawal or expiry. Raw explicit APIs and migration bytes are unchanged.
+
+- Add original-key custom-role create/update, exact current role reads and
+  effective permission checks through `OperationService`, using the real native
+  catalog, role/binding, policy-epoch and deny-precedence owners. Ordered intent
+  is frozen before callbacks; matching retries disclose only original outcomes.
+  Natural exact-version role deletion requires optional
+  `DynamicRoleDeleteOperationLookupMigrationSource` in a bounded write-blocking
+  maintenance window. Nullable selectors extend existing atomic effects without
+  backfilling legacy authority; explicit raw writers remain compatible without
+  it. Facade recovery uses actual role-write/query authority without general
+  organization-read; raw legacy recovery remains unchanged. Retired IDs and
+  retained bindings never revive. No assignment facade or HTTP/Reference route
+  is enabled.
+
 - Add original-key team rename, current exact team reading and natural terminal
   deletion through `OperationService`, retaining native epoch, identity-retirement,
   membership, audit/outbox and original-recovery ownership. Rename preserves

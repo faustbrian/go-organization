@@ -1,5 +1,39 @@
 # go-organization/postgres
 
+## Original-key custom-role CRUD and effective permission checks
+
+`OperationService.CreateDynamicRole` and `UpdateDynamicRole` retain one original
+key, chosen role identity, exact organization/role epochs and the complete ordered
+replacement. Statements are copied before any callback or IO; the existing
+immutable native catalog, role limits and deny precedence remain authoritative.
+`GetDynamicRole`, `ListDynamicRoles` and `CheckPermission` delegate their actual
+native readers/evaluator, including current role-read or member authority and
+late session/policy fences. Direct/team assignment and revocation remain the
+existing raw APIs, not new facade endpoints.
+
+`DeleteDynamicRole` naturally repeats exact-version terminal retirement without
+a key or caller command. It denies retained direct/team bindings and never reuses
+the role ID; tombstones count toward the existing role limit. Before selecting
+natural deletion, install `DynamicRoleDeleteOperationLookupMigrationSource` after
+the existing role migration at an unused permanent version. It adds nullable
+selectors and a partial unique index to the existing atomic effect, with no
+backfill, second journal or new authority. Its transactional index build blocks
+writes and requires an operator maintenance window with bounded lock/transaction
+timeouts. Raw explicit role commands do not require this optional lookup schema.
+
+Matching original keys/selectors return only actual original receipts under
+current manager/session, actual role-write and outcome-query authority, without
+an unrelated organization-read grant. Raw legacy `Service.Recover` retains its
+existing read policy. An unknown mapping or execution result never authorizes
+automatic reexecution; retain its original binding for `RecoverOperation` when
+natural syntax cannot identify an unattached command. No HTTP/Reference route,
+assignment facade, conditions, wildcards or whole-M23 qualification is enabled.
+
+Natural role/team deletion and team-member removal authorize the actual original
+outcome query before returning history-dependent selector conflicts. They fence
+the same original native admission after final terminal/binding IO, without
+renewing its validity; withdrawal or expiry during that IO denies disclosure.
+
 ## Original-key team rename and natural terminal deletion
 
 `OperationService.UpdateTeam` replaces only a bounded team name at exact

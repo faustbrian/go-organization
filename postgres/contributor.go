@@ -66,6 +66,9 @@ type Contributor struct {
 	// Only an isolated natural terminal-delete invocation selects its optional
 	// exact-effect correlation; unmarked explicit writers retain their schema.
 	naturalTeamDelete bool
+	// Only an isolated natural role-delete invocation selects optional exact
+	// original selectors. Legacy explicit role writers retain their schema.
+	naturalDynamicRoleDelete bool
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
