@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add a neutral natural-repeat invitation-expiry request binding exact invitation
+  and organization versions and a registered non-secret reason, without a key,
+  caller command or recipient proof. Repetition requires actual matching original
+  metadata and current original-manager/session authority; terminal state alone
+  is not a receipt. Existing explicit expiry APIs remain unchanged; this contract
+  alone enables no durable initiating workflow or HTTP route.
+
 - Add a neutral original-key owner-transfer request binding the existing member,
   organization and both membership versions and complete original password
   proof. Bounded validation and redacted custody confer no authority. Exact

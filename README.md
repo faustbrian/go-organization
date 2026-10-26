@@ -99,6 +99,18 @@ than natural intent. Credentials/selectors remain redacted and non-serializable.
 Existing explicit rejection APIs and `StoreResult` are unchanged; this neutral
 request alone enables no initiating execution or HTTP route.
 
+`InvitationExpireOperationRequest` selects exact invitation/organization versions
+and a non-secret reason for natural-repeat manager expiry. It accepts no key,
+caller command ID or recipient proof. The native owner allocates the command and
+uses the existing `InvitationConfig.ExpirationReasons` allowlist, not arbitrary
+caller text or a separate reason policy. Matching repetitions require actual
+original metadata under current original-manager/session authority; changed
+reason or organization epoch conflicts. An expired row alone is not a receipt,
+and an unknown outcome never permits another execution. Correlation is diagnostic
+and credentials/selectors remain redacted and non-serializable. Existing explicit
+expiry APIs and `StoreResult` are unchanged; this neutral request alone enables
+no initiating execution or HTTP route.
+
 `InvitationAcceptRequest` remains **once**, not keyed: callers retain their
 original `CommandID`, exact organization/invitation versions and privately held
 proof. Its `Validate` checks bounded syntax without consuming proof or granting
