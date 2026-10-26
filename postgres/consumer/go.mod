@@ -34,8 +34,8 @@ require (
 	github.com/faustbrian/go-identity/session/postgres v0.0.0-20261020162400-f96bcf8bf25d
 	github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc
 	github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820
-	github.com/faustbrian/go-organization v0.0.0-20261026184046-a68570aea06b
-	github.com/faustbrian/go-organization/postgres v0.0.0-20261026185654-ed693c983ba1
+	github.com/faustbrian/go-organization v0.0.0-20261026192644-cb1b12bde1a5
+	github.com/faustbrian/go-organization/postgres v0.0.0-20261026195707-4a005aa5643c
 	github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff
 	github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7
 	github.com/faustbrian/go-rate-limit/v2 v2.0.1-0.20261015090634-0ebce3975fe1

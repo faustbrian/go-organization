@@ -1,5 +1,14 @@
 # Genuine organization PostgreSQL consumers
 
+`TestOrganizationGenuineTeamMemberOperationConsumer` uses actual signup,
+verification and password sessions for original-key admission, current own-team
+and member reads, organization removal/readmission fencing and exact-binding
+natural removal. It checks reconstructed original receipts, all intent epochs,
+tenant/manager/session withdrawal, real mapping/domain COMMIT-response loss,
+two concurrent empty natural-history reads and actual SignOut. The optional
+correlation schema is native; no application store, private session or alternate
+journal supplies authority.
+
 This test-only nested module preserves the real signup, verification, password
 signin, native organization and encrypted-delivery consumers. It consumes the
 published native adapter and HTTP leaf through normal authenticated public pins,

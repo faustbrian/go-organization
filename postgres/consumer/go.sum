@@ -131,10 +131,10 @@ github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc h1:u
 github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc/go.mod h1:h9WNJuNOR77bYc9ni8VPeyFTAyQcmyjCAmT5Bko8w60=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820 h1:/5nveXXAZ0rYYsxG8uJbQDxkC9rse6kIEOeq2yGr2C8=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820/go.mod h1:BpEy2DPz/YR5C9gcBcKAxkG4fO+jo6WLwjNDy075MYY=
-github.com/faustbrian/go-organization v0.0.0-20261026184046-a68570aea06b h1:x5STtMma5LB8yoHpZ7Vlk6xH0oQIVCajM4pvlUfQQsA=
-github.com/faustbrian/go-organization v0.0.0-20261026184046-a68570aea06b/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
-github.com/faustbrian/go-organization/postgres v0.0.0-20261026185654-ed693c983ba1 h1:6Z0ixtGqJu1pMP/EbMzarMmDA4Noptf3m7vQIhW6/sI=
-github.com/faustbrian/go-organization/postgres v0.0.0-20261026185654-ed693c983ba1/go.mod h1:BbIpHWwKjjvqj97JtcTuOhKnqLF6ok3J4hBN+X57HbE=
+github.com/faustbrian/go-organization v0.0.0-20261026192644-cb1b12bde1a5 h1:xnMKqSoCJBf8thYB2KYE3EikPsbAXH/UrOpmF//IL4o=
+github.com/faustbrian/go-organization v0.0.0-20261026192644-cb1b12bde1a5/go.mod h1:HFX7AoFO6dLYTNcIeleKAEgiV9m19mXlH0q4L/K/rpA=
+github.com/faustbrian/go-organization/postgres v0.0.0-20261026195707-4a005aa5643c h1:ujtxHpXemyCbJDorl/LWaWn2El8oy9clthUWxEOafe0=
+github.com/faustbrian/go-organization/postgres v0.0.0-20261026195707-4a005aa5643c/go.mod h1:G9A4XuERKNPcEfFod70C7dcEeDnZWtZ41m+jNZtJyVM=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff h1:8BIB469appqyn79T6j/sJQAS3dN6+budadfpPLwtqIg=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff/go.mod h1:Tqc83xc8RVAsi6JAW3dkKM1OFVos7cfayeNHBbWstsA=
 github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7 h1:yYXsPBwz+mm8JMdWfl+DcTdeD52C/zlBW2H4Tb40gKk=
