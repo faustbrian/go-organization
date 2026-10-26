@@ -432,6 +432,16 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		return
 	}
 	service := consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+	if invitationProfile == "self-leave-operation" {
+		logout, err := graph.features.Sessions()
+		if err != nil {
+			t.Fatal("genuine self-leave session owner unavailable", err)
+		}
+		exerciseGenuineSelfLeaveOperation(t, ctx, db, service, owner, member, memberID, keys, material, func() *organizationpg.Service {
+			return consumerOrganizationService(t, pool, sessions, profile, lookup, keys, material)
+		}, signinRecipient, logout)
+		return
+	}
 	if invitationProfile == "slug-available" {
 		logout, err := graph.features.Sessions()
 		if err != nil {

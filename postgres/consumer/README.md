@@ -64,3 +64,15 @@ recovery after later resends and acceptance. It also covers current administrato
 and recipient withdrawal (including inside delivery-status policy), rollback,
 mapping-only/final COMMIT-response loss, immutable original expiry/refusal and
 concurrent-key singleton effects before any recovery retry.
+
+## Natural self-leave consumer
+
+`TestOrganizationGenuineSelfLeaveOperationConsumer` consumes public root/native
+modules without replacements. It runs real signup, captured verification and
+password signin, then self-leave, original natural repeat and recovery through
+a fresh native facade and fresh signin. It checks scoped-read withdrawal,
+unchanged legacy recovery denial, readmission conflict, explicit history-only
+recovery, last-owner protection and actual session signout denial. The native
+lookup is installed in an independent migration namespace, not an application
+receipt store. Use the existing disposable loopback PostgreSQL setup above and
+select this test with `-tags=integration -race`.
