@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a neutral natural-repeat invitation-cancellation request without a client
+  key, command or recipient proof. Repetition requires actual original metadata
+  and current manager authority, never success inferred from a terminal row.
+  Existing explicit cancellation APIs remain unchanged; this contract alone
+  enables no durable initiating workflow or HTTP route.
+
 - Add original-key invitation-resend request and neutral outcome/delivery-state
   contracts. Preserve the fixed recipient, role and original exclusive expiry;
   retries classify the original successor without reissuing or redelivering it.

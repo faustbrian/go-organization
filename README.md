@@ -65,6 +65,16 @@ known commitment or authorize redispatch. Existing explicit preparation and
 native result types remain unchanged. These neutral contracts alone enable no
 durable execution or HTTP route.
 
+`InvitationCancelOperationRequest` selects an exact invitation/organization and
+their versions for natural-repeat cancellation. It accepts neither an initiating
+key nor a caller command ID or recipient proof. The native owner must allocate
+the command and reconcile actual original metadata under current manager/session
+authority; a cancelled or absent row alone never proves a successful command.
+Recipient withdrawal cannot prevent revocation. Versions retain the existing
+native cancel bounds, and correlation is diagnostic rather than natural intent.
+Existing explicit cancellation APIs and `StoreResult` are unchanged. This neutral
+request alone enables no initiating execution or HTTP route.
+
 `InvitationAcceptRequest` remains **once**, not keyed: callers retain their
 original `CommandID`, exact organization/invitation versions and privately held
 proof. Its `Validate` checks bounded syntax without consuming proof or granting
