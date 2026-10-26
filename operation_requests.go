@@ -139,7 +139,7 @@ func (r RemoveMemberOperationRequest) Validate() error {
 // A structurally valid binding still confers no disclosure permission.
 func (r OperationRecoveryRequest) Validate() error {
 	op := Operation(r.Binding.OperationID)
-	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
+	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember && op != Archive && op != Restore || lifecycleMutation(op) && r.Binding.UserID != identity.UserID(r.Binding.ActorID) || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
 		return ErrInvalidInput
 	}
 	return nil

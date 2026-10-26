@@ -31,6 +31,20 @@ Existing `CreateRequest`, `UpdateRequest`, `MemberRequest` and `Prepare*` APIs
 are unchanged.
 These additive contracts alone do not enable a durable operation or HTTP route.
 
+`LifecycleOperationRequest` carries one required initiating key for owner-only
+archive or restore at an exact organization version, a required visible-ASCII
+reason and bounded correlation, and the complete original action-bound password
+proof projection. The native signed-proof owner still authenticates provenance,
+current session/owner, configured audience, freshness and exclusive expiry.
+Syntax validation has no trusted clock: expired original projections remain
+representable for matching-key historical classification, not fresh execution.
+Matching retries must not prepare again or renew proof/authority; changed reason,
+version, complete proof or configuration conflicts. `OperationRecoveryRequest`
+admits only exact self-owner Archive/Restore original bindings in addition to
+its existing operations. Neither a mapping nor an absent outcome proves success
+or noncommit. Existing `LifecycleRequest` and explicit preparation remain
+unchanged; hard deletion and external asynchronous cascades remain separate.
+
 `InvitationSendOperationRequest` selects one existing verified recipient by user
 and identifier ID, the exact organization/version, and one required initiating
 key. The durable native owner allocates command and invitation IDs and retains

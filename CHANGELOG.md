@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add keyed `LifecycleOperationRequest` for exact-version owner archive/restore
+  with complete original action-proof intent, and exact original lifecycle
+  recovery syntax. Credentials and initiating keys remain non-serializable;
+  validation does not authenticate signed proof, current authority or expiry.
+  Matching retries must retain original command/proof observations, never
+  prepare again. Existing explicit lifecycle APIs are unchanged; these neutral
+  contracts alone add no durable execution, HTTP or external cascade profile.
+
 - Add opaque `PreparedInvitationAcceptance` for two-phase native preparation,
   original rate admission and later exact execution. Transports can complete
   pre-handler gates before executing without rebuilding preparation or renewing
