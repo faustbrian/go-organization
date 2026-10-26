@@ -27,6 +27,14 @@ These consumers prove their selected existing native profiles, not full M22,
 external lifecycle cascades or a stable organization release. See the
 [native adoption and security notes](../README.md).
 
+`TestOrganizationGenuineInvitationCancelOperationConsumer` proves naturally
+repeatable cancellation with native-allocated command identity. It uses real
+manager sessions, exact original selector/history, old-proof denial, restart
+recovery, org:invite without org:read, late manager and recipient withdrawal,
+atomic rollback, final COMMIT-response loss and competing cancellation/acceptance.
+The populated optional migration preserves raw cancellation and never invents
+missing original organization-version correlation for legacy effects.
+
 `TestOrganizationGenuineLifecycleOperationConsumer` proves original-key archive
 and fresh-proof restore after real signup, verification and password signin.
 It checks warm/current denial, invitation cancellation, surviving membership,
