@@ -23,6 +23,14 @@ genuine journey with `GOWORK=off`, its existing
 the published adapter pins and is not public-consumer evidence.
 Run ordinary parent-module tests separately. No new runner or workflow is needed.
 
+`TestOrganizationGenuineOwnerTransferOperationConsumer` uses the public signup,
+captured verification, password-signin and signed action-proof graph for an
+original-key owner transfer into an existing member. It checks both role and
+scoped-authority versions, the former owner's fresh-session original recovery,
+changed-intent and last-owner denial, real mapping/domain COMMIT-response loss
+without automatic execution, and actual source logout without revoking the
+independent new owner. It consumes the published adapter, not local replacements.
+
 `TestOrganizationGenuineSlugAvailabilityConsumer` uses signup-issued sessions
 for a nonmember's advisory free/taken read around an actual owner create. It
 proves tenant mismatch and native public signout denial without withdrawing an

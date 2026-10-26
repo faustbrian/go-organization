@@ -385,6 +385,22 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
+	if invitationProfile == "owner-transfer-operation" {
+		policy, err := fixtureAuthorization()
+		if err != nil {
+			t.Fatal(err)
+		}
+		proofSource, primary, _ := transferProofSource(t, ctx, pool, db, sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, profile, lookup, policy, 9, []string{baselineTenant}, keys["fingerprint"])
+		fresh := func(selected *database.Pool) *organizationpg.Service {
+			return consumerOrganizationService(t, selected, sessions, profile, lookup, keys, material, primary)
+		}
+		logout, err := graph.features.Sessions()
+		if err != nil {
+			t.Fatal(err)
+		}
+		exerciseGenuineOwnerTransferOperation(t, ctx, pool, db, owner, member, ownerID, memberID, keys, material, fresh, signinOwner, func(a organization.Authentication) auth.ReauthenticationProof { return ownerProof(proofSource, a) }, logout)
+		return
+	}
 	var resendAdministrator invitationResendAdministrator
 	if invitationProfile == "resend" || invitationProfile == "resend-operation" || invitationProfile == "cancel-operation" || strings.HasPrefix(invitationProfile, "reject-operation") {
 		resendAdministrator.authentication, resendAdministrator.id, resendAdministrator.signin, _ = register()
