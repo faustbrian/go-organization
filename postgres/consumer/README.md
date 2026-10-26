@@ -1,5 +1,20 @@
 # Genuine organization PostgreSQL consumers
 
+`TestOrganizationGenuineDynamicRoleOperationConsumer` uses actual signup,
+verification and password sessions for original-key custom-role create/update,
+current role/list/permission reads and natural exact-version terminal deletion.
+Existing raw direct/team binding owners supply setup; actual effective checks
+observe ordered statement replacement, explicit deny and policy-epoch fencing.
+General organization reads are denied throughout facade recovery. The profile
+checks immutable callback intent, retained-ID/binding nonrevival, role limits,
+required-effect rollback, actual mapping/domain COMMIT loss, initial contention,
+late authority withdrawal, fresh-session reconstruction and real SignOut. It
+uses published native owners, not a private role, session or outcome store; it
+adds no assignment facade, HTTP/Reference route or whole-M23 qualification.
+Outcome/fault and authority/logout scenarios use separate fresh databases and
+genuine signup cohorts with identical native policy, retaining its 20-attempt
+privileged-operation budget instead of charging unrelated setup against it.
+
 `TestOrganizationGenuineTeamLifecycleOperationConsumer` uses actual signup,
 verification and password sessions for original-key rename, current member views,
 natural terminal deletion and fresh-session/reconstructed original recovery.

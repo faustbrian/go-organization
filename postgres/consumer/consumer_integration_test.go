@@ -385,6 +385,14 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
+	if invitationProfile == "dynamic-role-operation-outcomes" || invitationProfile == "dynamic-role-operation-authority" {
+		logout, err := graph.features.Sessions()
+		if err != nil {
+			t.Fatal(err)
+		}
+		exerciseGenuineDynamicRoleOperations(t, ctx, pool, db, sessions, profile, lookup, owner, member, ownerID, memberID, keys, material, signinOwner, logout, invitationProfile == "dynamic-role-operation-authority")
+		return
+	}
 	if invitationProfile == "team-lifecycle-operation" {
 		logout, err := graph.features.Sessions()
 		if err != nil {
