@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add an explicitly selected password/bearer active-organization API. Selection
+  and clear bind one exact session CAS to current organization membership and
+  the organization aggregate epoch; current reads deny stale selection without
+  returning metadata. Keyed intent excludes observed versions and supports
+  original-outcome recovery. Existing unselected-only services are unchanged.
+  Durable execution requires the separate native adapter profile.
+
 - Add neutral original-key team custom-role assignment and natural exact-binding
   revocation requests without caller commands or human-target overrides. Exact
   organization, role, team and binding epochs preserve existing raw bounds and

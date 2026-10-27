@@ -141,6 +141,12 @@ func (r RemoveMemberOperationRequest) Validate() error {
 // A structurally valid binding still confers no disclosure permission.
 func (r OperationRecoveryRequest) Validate() error {
 	op := Operation(r.Binding.OperationID)
+	if op == ActiveSet {
+		if r.Binding.UserID != identity.UserID(r.Binding.ActorID) || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
+			return ErrInvalidInput
+		}
+		return nil
+	}
 	if op != Create && op != Update && op != AddMember && op != UpdateMember && op != RemoveMember && op != LeaveMember && op != Archive && op != Restore && op != OwnerTransfer && op != CreateTeam && op != AddTeamMember && op != RemoveTeamMember && op != UpdateTeam && op != DeleteTeam && op != CreateDynamicRole && op != UpdateDynamicRole && op != DeleteDynamicRole && op != AssignDynamicRole && op != RevokeDynamicRole || (lifecycleMutation(op) || op == LeaveMember || op == CreateTeam || op == UpdateTeam || op == DeleteTeam || op == CreateDynamicRole || op == UpdateDynamicRole || op == DeleteDynamicRole) && r.Binding.UserID != identity.UserID(r.Binding.ActorID) || r.Binding.ActorKind != authorization.SubjectUser || r.Binding.TenantID != r.Authentication.TenantID || r.Binding.ValidateFor(op.Descriptor()) != nil || !validOperationAuthentication(r.Authentication, r.Binding.CorrelationID) {
 		return ErrInvalidInput
 	}

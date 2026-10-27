@@ -7,9 +7,9 @@ require (
 	github.com/faustbrian/go-authorization/v3 v3.0.1-0.20261015052455-a55bbebb1060
 	github.com/faustbrian/go-capability/v2 v2.0.2-0.20261015044219-caab644d2fec
 	github.com/faustbrian/go-clock v1.2.0
-	github.com/faustbrian/go-identity v0.0.0-20261018014749-05a10a28273a
+	github.com/faustbrian/go-identity v0.0.0-20261019000410-c5205a35b05c
 	github.com/faustbrian/go-identity/delivery v0.0.0-20261015061706-1f0b46ab1053
-	github.com/faustbrian/go-identity/session v0.0.0-20261018014749-05a10a28273a
+	github.com/faustbrian/go-identity/session v0.0.0-20261027043115-28187890dc06
 )
 
 require (

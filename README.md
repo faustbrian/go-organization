@@ -1,5 +1,24 @@
 # go-organization
 
+## Explicit active-organization profile
+
+`NewActiveOrganizationService` opts into genuine single-factor password/bearer
+selection. `PrepareActiveSet` freezes the submitted bearer's exact `SessionID`
+and observed session CAS, actual target membership and the existing organization
+aggregate epoch. Empty `OrganizationID` explicitly clears; selection never grants
+permission. `GetActive` rechecks current membership, lifecycle, policy and original
+scope/version, returning no metadata on denial. Existing `NewService` admission
+is unchanged, and cookie/CSRF, MFA and passkey selection remain unsupported.
+
+The storage-neutral command carries the complete session-owned source/successor
+and original exclusive deadline. A native adapter must enlist the session owner's
+effect inside the one organization-owned transaction; this root API alone is not
+a durable backend. `ActiveOrganizationOperationRequest` binds stable keyed intent
+to session plus requested organization/absence, not the observed source version.
+Retained keys recover original status without re-preparation. Active-set receipts
+use the exact session `RecordID`, session before/after versions and zero
+`OrganizationID`; a current selection is read separately through `GetActive`.
+
 ## Transport-neutral direct-operation requests
 
 `AssignTeamDynamicRoleOperationRequest` retains an original key and exact
