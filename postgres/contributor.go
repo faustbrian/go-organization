@@ -72,6 +72,9 @@ type Contributor struct {
 	// Only an isolated direct-role revoke selects optional original selectors.
 	// Ordinary explicit direct/team binding writers retain the legacy INSERT.
 	naturalRoleRevoke bool
+	// Only an isolated natural team-role invocation opts into team selectors;
+	// direct revocation and raw explicit writers retain their existing paths.
+	naturalTeamRoleRevoke bool
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)

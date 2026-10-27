@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add original-key team custom-role assignment and natural exact-binding
+  revocation through `OperationService`, retaining native role/team epochs,
+  compatible membership, current authority, atomic audit/outbox and original
+  receipts. New assignments, organization readmission and terminal team identity
+  cannot be reached or revived by stale intent. Select optional
+  `TeamRoleBindingRevokeOperationLookupMigrationSource` before natural revocation
+  in a bounded write-blocking maintenance window. Team-only nullable effect
+  selectors do not alias direct history or backfill legacy authority; explicit
+  writers and keyed assignment remain compatible without them. Actual role/query
+  authority applies without unrelated organization reads. No HTTP/Reference or
+  whole-M23 profile is enabled.
+
 - Add original-key direct custom-role assignment and natural exact-binding
   revocation through `OperationService`, preserving native membership, scoped
   authority, effective permissions, atomic audit/outbox and original receipts.

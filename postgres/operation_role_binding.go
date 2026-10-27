@@ -18,7 +18,8 @@ import (
 // target and all four epochs are immutable intent; matching retries disclose
 // only the original outcome under current role-action/session/query authority,
 // never renew a grant or execute an unknown result. Network is the transport's
-// trusted canonical full client IP. Team-derived assignments remain raw-owned.
+// trusted canonical full client IP. For team-targeted bindings, use
+// AssignTeamDynamicRole.
 func (s *OperationService) AssignDynamicRole(ctx context.Context, r organization.AssignDynamicRoleOperationRequest, network string) (organization.StoreResult, error) {
 	if s == nil || s.state == nil || ctx == nil || r.Validate() != nil {
 		return organization.StoreResult{}, organization.ErrInvalidInput
