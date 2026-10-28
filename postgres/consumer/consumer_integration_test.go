@@ -262,6 +262,18 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 		t.Fatal(e)
 	}
 	registrations := 0
+	var bearerSignin *passwordpg.SigninService
+	if invitationProfile == "active-organization" {
+		repository, err := organizationpg.NewRepository(pool, organizationpg.Config{MaximumDuration: time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessions, e = sessionpg.NewSelectedSessionService(pool, sessionpg.SelectedSessionServiceConfig{Repository: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Admission: sessionpg.SelectedSessionAdmissionConfig{SingleFactor: sessionpg.SingleFactorSessionAdmissionConfig{Verified: &profile}, OrganizationPassword: &sessionpg.OrganizationPasswordSessionAdmission{Profile: profile, Authority: repository}}, Validation: session.ServiceConfig{Profile: session.StorageStatefulOpaque, Audience: profile.Audience, Clock: clock.System{}, MaximumDuration: 2 * time.Second, ClockUncertainty: time.Millisecond, LookupKeys: []session.DigestKey{lookup}}})
+		if e != nil {
+			t.Fatal(e)
+		}
+		bearerSignin = selectionSigninService(t, ctx, pool, graph, material)
+	}
 	register := func() (organization.Authentication, identity.UserID, func() organization.Authentication, func(*passwordpg.ReauthenticationService, organization.Authentication, ...organization.Operation) auth.ReauthenticationProof) {
 		t.Helper()
 		registrations++
@@ -334,6 +346,9 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 			t.Fatal("actual confirmation failed or issued session", status)
 		}
 		signin := func() (organization.Authentication, identity.UserID) {
+			if bearerSignin != nil {
+				return genuineSelectionSignin(t, ctx, pool, graph.signin, bearerSignin, address, candidate)
+			}
 			flow = preauth("password")
 			started := time.Now()
 			status, body, cookies = call("/v1/password/signin", map[string]any{"flowID": string(flow.FlowID), "identifier": address, "password": candidate, "callbackURL": origin + "/confirm"}, "")
@@ -385,6 +400,10 @@ func exerciseGenuinePasswordConsumer(t *testing.T, invitationProfile string) {
 	}
 	owner, ownerID, signinOwner, ownerProof := register()
 	member, memberID, signinRecipient, _ := register()
+	if invitationProfile == "active-organization" {
+		exerciseGenuineActiveOrganization(t, ctx, pool, db, sessions, profile, lookup, owner, member, memberID, keys, material, signinRecipient)
+		return
+	}
 	if invitationProfile == "team-role-binding-operation-outcomes" || invitationProfile == "team-role-binding-operation-authority" {
 		logout, err := graph.features.Sessions()
 		if err != nil {
@@ -627,12 +646,20 @@ func consumerOrganizationServiceWithRoles(t *testing.T, pool *database.Pool, ses
 
 func consumerOrganizationServiceProfile(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte, roles organization.DynamicRoleConfig, domainSource *organizationpg.DomainEvidenceSource, selectedPrimary ...*passwordpg.ActionPrimarySource) *organizationpg.Service {
 	t.Helper()
+	return consumerOrganizationServiceSelection(t, pool, sessions, profile, lookup, keys, material, roles, domainSource, false, selectedPrimary...)
+}
+
+func consumerOrganizationServiceSelection(t *testing.T, pool *database.Pool, sessions *session.SessionService, profile sessionpg.IdentifierAdmissionConfig, lookup session.DigestKey, keys map[string][32]byte, material func(string) []byte, roles organization.DynamicRoleConfig, domainSource *organizationpg.DomainEvidenceSource, active bool, selectedPrimary ...*passwordpg.ActionPrimarySource) *organizationpg.Service {
+	t.Helper()
 	repository, e := organizationpg.NewRepository(pool, organizationpg.Config{MaximumDuration: 2 * time.Second})
 	if e != nil {
 		t.Fatal(e)
 	}
 	teams := organization.TeamConfig{Version: 1, MaximumTeams: 100, MaximumMembers: 100, LifecycleVersion: 1}
 	domains := organization.DomainConfig{Version: 1, MaximumClaims: 100}
+	if active {
+		teams, domains = organization.TeamConfig{}, organization.DomainConfig{}
+	}
 	if domainSource != nil {
 		domains.EvidenceMaximumAge = time.Hour
 	}
@@ -648,7 +675,7 @@ func consumerOrganizationServiceProfile(t *testing.T, pool *database.Pool, sessi
 		archive, restore = selectedPrimary[1], selectedPrimary[2]
 		lifecycle = organization.LifecycleConfig{Version: 1, ProofAudience: transferAudience}
 	}
-	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DomainEvidence: domainSource, DynamicRoles: roles, OwnerTransferPrimary: primary, Lifecycle: lifecycle, ArchivePrimary: archive, RestorePrimary: restore})
+	participant, e := organizationpg.NewContributor(repository, organizationpg.ContributorConfig{Session: sessionpg.Config{Schema: "session_store", MaximumDuration: time.Second}, Profile: profile, LookupKeys: map[uint32]session.DigestKey{11: lookup}, PolicyID: "organization", PolicyVersion: 9, MaximumMembers: 100, MaximumPerUser: 100, MaximumPerTenant: 1000, Teams: teams, Domains: domains, DomainEvidence: domainSource, DynamicRoles: roles, ActiveOrganization: active, OwnerTransferPrimary: primary, Lifecycle: lifecycle, ArchivePrimary: archive, RestorePrimary: restore})
 	if e != nil {
 		t.Fatal(e)
 	}

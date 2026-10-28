@@ -56,6 +56,16 @@ two concurrent empty natural-history reads and actual SignOut. The optional
 correlation schema is native; no application store, private session or alternate
 journal supplies authority.
 
+`TestOrganizationGenuineActiveOrganizationConsumer` selects genuine native
+password bearer issuance after public signup and email verification. Its finite
+journey creates organizations and admits the registered member through the public
+keyed facade, then sets, reads, switches and clears two independent sessions.
+Fresh-service original-key history never replays an old choice; sibling-session
+history and reads/retries after actual membership removal are denied. The native
+adapter's separate integration profile owns deadline, contention and fault
+coverage; this consumer does not duplicate that matrix or select cookie/MFA/passkey
+organization selection.
+
 This test-only nested module preserves the real signup, verification, password
 signin, native organization and encrypted-delivery consumers. It consumes the
 published native adapter and HTTP leaf through normal authenticated public pins,

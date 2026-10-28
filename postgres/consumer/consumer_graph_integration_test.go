@@ -38,6 +38,7 @@ import (
 )
 
 type baselineGraph struct {
+	signin   passwordpg.SigninConfig
 	stores   reference.StoreSet
 	features reference.FeatureSet
 	workers  reference.WorkerSet
@@ -268,6 +269,7 @@ func fixtureGraph(ctx context.Context, origin string, fixtureKeys map[string][32
 		Profile: sessionpg.IdentifierAdmissionConfig{GlobalAuthorityID: "deployment", PolicyNamespace: "users", Audience: "local-baseline", AuthenticationMethod: "password", CredentialKind: identity.CredentialPassword, CredentialOwner: "identity/password"}, Address: addressPolicy, FlowKeys: []session.DigestKey{flowKey}, Issuance: issuance, CSRFKey: csrf,
 		Risk: risk.AuthenticationAdmissionCustodyConfig{ConfigurationID: "local-password-v1", Keys: []risk.EvidenceKey{evidence}}, Coordinator: coordinator, SigningKey: loginSigner, VerificationKeys: map[string]ed25519.PublicKey{"local-baseline": private.Public().(ed25519.PublicKey)}, Issuer: origin, Environment: "local-capture", PolicyID: "password-login", ProofTTL: time.Minute, IdentifierKey: bytes("password-flow"), Origins: []string{origin}, CallbackURLs: []string{callback},
 	}
+	g.signin = signin
 	configured.PasswordSignin = &reference.PasswordSigninConfiguration{Native: signin, PreAuth: preauth}
 	configured.HTTPPasswordSignin = &reference.HTTPPasswordSigninConfiguration{ActorID: baselineActor, PolicyRevision: 9}
 	configured.PasswordSignup = &reference.PasswordSignupConfiguration{
@@ -332,7 +334,8 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 		return authorization.Decision{}, ctx.Err()
 	}
 	allow := false
-	if string(r.Tenant) == baselineTenant && r.Subject.ID != "" && r.Resource.ID != "" {
+	selection := r.Subject.Kind == authorization.SubjectUser && r.Resource.Type == "organization" && (r.Action == "identity.organization.active-set" || r.Action == "identity.organization.active-get")
+	if string(r.Tenant) == baselineTenant && r.Subject.ID != "" && (r.Resource.ID != "" || selection) {
 		if r.Subject.Kind == authorization.SubjectServiceAccount && r.Subject.ID == baselineActor {
 			switch r.Action {
 			case "identity.session.preauth-issue":
@@ -351,6 +354,8 @@ func (*baselineEvaluator) Evaluate(ctx context.Context, r authorization.Request)
 		}
 		if r.Subject.Kind == authorization.SubjectUser {
 			switch r.Action {
+			case "identity.organization.active-set", "identity.organization.active-get":
+				allow = r.Resource.Type == "session" || r.Resource.Type == "organization" || r.Resource.Type == "identity.user" || r.Resource.Type == "identity.request-admission" && string(r.Resource.ID) == string(r.Action)
 			case "identity.organization.slug-available":
 				allow = r.Resource.Type == "organization.slug"
 			case "identity.organization.role.create", "identity.organization.role.update", "identity.organization.role.delete", "identity.organization.role.get", "identity.organization.role.list", "identity.organization.role.assign", "identity.organization.role.revoke", "identity.organization.permission-check":
