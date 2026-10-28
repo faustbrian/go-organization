@@ -43,6 +43,9 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 	if e != nil {
 		return identity.FeatureReceipt{}, e
 	}
+	if c.operation == organization.ActiveSet {
+		return p.applyActiveOrganization(ctx, w, c, command)
+	}
 	var primary passwordpg.ActionPrimaryAdmission
 	if c.operation == organization.OwnerTransfer {
 		primary, e = p.restoreTransfer(ctx, c, command)
@@ -384,6 +387,15 @@ func readMember(ctx context.Context, w kernel.Work, tenant identity.TenantID, or
 // committed evidence beside a pending journal is left for the sole coordinator
 // to classify as conflicting/unknown, never reconstructed as a fresh success.
 func (p *Contributor) RecoverParticipant(ctx context.Context, w kernel.RecoveryWork) (kernel.RecoveryStatus, error) {
+	if p != nil && p.selection != nil {
+		b, _, _, err := w.FeatureScope(p)
+		if err != nil {
+			return kernel.RecoveryUnknown, err
+		}
+		if organization.Operation(b.OperationID) == organization.ActiveSet {
+			return p.selection.Recover(ctx, w, p)
+		}
+	}
 	status, err := p.recoverEffect(ctx, w)
 	if err != nil {
 		return kernel.RecoveryUnknown, err

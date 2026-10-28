@@ -45,6 +45,11 @@ type ContributorConfig struct {
 	// OwnerTransferPrimary explicitly enables the operation-bound password
 	// profile. Omission preserves the original operation set and command bytes.
 	OwnerTransferPrimary *passwordpg.ActionPrimarySource
+	// ActiveOrganization explicitly enables exact-session password/bearer
+	// selection through the session owner's effect. Install that owner's
+	// OrganizationSelectionMigrationSource and compose its selected reader
+	// with this Repository as OrganizationSessionAuthority before use.
+	ActiveOrganization bool
 }
 
 // Contributor is an immutable open registered participant, not a coordinator or
@@ -75,6 +80,7 @@ type Contributor struct {
 	// Only an isolated natural team-role invocation opts into team selectors;
 	// direct revocation and raw explicit writers retain their existing paths.
 	naturalTeamRoleRevoke bool
+	selection             *sessionpg.OrganizationSelectionEffect
 }
 
 var _ kernel.FeatureCommitContributor = (*Contributor)(nil)
@@ -100,7 +106,15 @@ func NewContributor(repository *Repository, c ContributorConfig) (*Contributor, 
 	}
 	c.LookupKeys = keys
 	c.DynamicRoles.Catalog = slices.Clone(c.DynamicRoles.Catalog)
-	return &Contributor{repository: repository, config: c}, nil
+	participant := &Contributor{repository: repository, config: c}
+	if c.ActiveOrganization {
+		var err error
+		participant.selection, err = sessionpg.NewOrganizationSelectionEffect(c.Session, sessionpg.OrganizationPasswordSessionAdmission{Profile: c.Profile, Authority: repository})
+		if err != nil {
+			return nil, organization.ErrInvalidInput
+		}
+	}
+	return participant, nil
 }
 
 func (*Contributor) Descriptor() kernel.ContributorDescriptor {
@@ -108,6 +122,9 @@ func (*Contributor) Descriptor() kernel.ContributorDescriptor {
 }
 func (p *Contributor) FeatureOperations() []identity.FeatureOperation {
 	ops := []identity.FeatureOperation{organization.Create.Descriptor(), organization.Update.Descriptor(), organization.AddMember.Descriptor(), organization.UpdateMember.Descriptor(), organization.RemoveMember.Descriptor(), organization.LeaveMember.Descriptor()}
+	if p != nil && p.selection != nil {
+		ops = append(ops, organization.ActiveSet.Descriptor())
+	}
 	if p != nil && p.config.Lifecycle.Version == 1 {
 		ops = append(ops, organization.Archive.Descriptor(), organization.Restore.Descriptor())
 	}
@@ -160,6 +177,7 @@ type nativeCommand struct {
 	lifecycleState                          organization.LifecycleState
 	lifecycleReason                         string
 	actorFactorVersion, targetFactorVersion uint64
+	selection                               session.OrganizationSelectionCommand
 }
 
 func text(name, value string) identity.FeatureField {
@@ -185,6 +203,9 @@ func (p *Contributor) mapCommand(c organization.Command) (identity.Command, erro
 	x, e := c.Input()
 	if e != nil || p == nil || p.repository == nil || x.MaximumMembers != p.config.MaximumMembers || x.MaximumPerUser != p.config.MaximumPerUser || x.MaximumPerTenant != p.config.MaximumPerTenant || x.Binding.PolicyID != p.config.PolicyID || x.Binding.PolicyVersion != p.config.PolicyVersion {
 		return identity.Command{}, organization.ErrInvalidInput
+	}
+	if x.Operation == organization.ActiveSet {
+		return p.mapActiveOrganization(x)
 	}
 	if x.Operation == organization.OwnerTransfer || isLifecycleMutation(x.Operation) {
 		// Its source-owned proof framing requires authenticated primary
@@ -247,6 +268,9 @@ func (p *Contributor) decode(command identity.Command) (nativeCommand, error) {
 	op := organization.Operation(s.Binding.OperationID)
 	if s.Operation != op.Descriptor() || s.Operation.Validate() != nil || s.Binding.ActorKind != authorization.SubjectUser || s.Binding.PolicyID != p.config.PolicyID || s.Binding.PolicyVersion != p.config.PolicyVersion {
 		return bad()
+	}
+	if op == organization.ActiveSet {
+		return p.decodeActiveOrganization(s)
 	}
 	values := map[string]identity.FeatureValue{}
 	original := []identity.FeatureField{}
@@ -439,6 +463,9 @@ func (p *Contributor) ValidateFeatureCommand(command identity.Command, plan kern
 	if e != nil {
 		return e
 	}
+	if c.operation == organization.ActiveSet {
+		return p.validateActiveOrganizationPlan(c, plan)
+	}
 	event, action := events(c.operation)
 	if plan.Feature == nil || plan.Feature.Contributor != p.Descriptor() || plan.Feature.Operation != c.spec.Operation || plan.SubjectType != "organization" || plan.Lifecycle == nil || plan.Lifecycle.EventType != event || plan.Lifecycle.BeforeVersion != c.org.Version || plan.Lifecycle.AfterVersion != c.org.Version+1 || len(plan.Audits) != 1 || plan.Audits[0].EventType != action || plan.Audits[0].RetentionClass != "protected" || plan.Capability != nil || plan.Delivery != nil || plan.CommandCounters == nil {
 		return organization.ErrInvalidInput
@@ -624,6 +651,12 @@ func (p *Contributor) CheckFeatureCommit(ctx context.Context, w kernel.Work, com
 	c, e := p.decode(command)
 	if e != nil {
 		return e
+	}
+	if c.operation == organization.ActiveSet {
+		if err := p.requireActiveOrganizationTarget(ctx, w, c); err != nil {
+			return err
+		}
+		return p.selection.Check(ctx, w, p, command)
 	}
 	if c.operation == organization.OwnerTransfer {
 		primary, err := p.restoreTransfer(ctx, c, command)

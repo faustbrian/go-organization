@@ -1,5 +1,50 @@
 # go-organization/postgres
 
+## Exact-session active organization selection
+
+Opt in with `ContributorConfig.ActiveOrganization`. Compose the native session
+reader with `session/postgres.NewSelectedSessionService`, selecting the same
+password profile and this adapter's `Repository` as
+`OrganizationPasswordSessionAdmission.Authority`. The ordinary reader does not
+accept an organization dimension. Install the session owner's additive
+`OrganizationSelectionMigrationSource` at an unused permanent version after the
+existing session history; replay preserves populated session and family rows.
+
+`OperationService.SetActiveOrganization` accepts a stable idempotency key, the
+exact authenticated session ID and a requested organization, or an empty
+organization to clear. The explicit `Service.PrepareActiveOrganization` /
+`Execute` form instead retains the original command. `GetActiveOrganization`
+returns the current non-secret view without touching activity, authentication,
+bearer lifetime or family authority. Sessions belonging to the same user select
+independently; no user-global or organization-owned selection is stored.
+
+Only genuine single-factor email/password bearer sessions are selected. Cookie
+sessions retain their existing CSRF behavior and ordinary organization APIs,
+but cookie, MFA and passkey selection fail closed. No authentication dimension
+is removed to make an unsupported profile fit. Required authorization includes
+the selected operation's own current policy and the native protected-counter
+profile. This finite facade supports exactly the configured `velocity` signal;
+the constructor rejects selected policies also requiring status, CAPTCHA or
+another provider signal instead of silently skipping them. Unselected factories
+retain their existing behavior. Neither selection nor a successful history read
+grants membership.
+
+The sole identity coordinator commits the exact session CAS, current target
+membership/aggregate/policy fence, protected audit and lifecycle/outbox effect
+together. An expired observation, stale CAS, missing required effect or changed
+authority cannot produce a successful selection. The original preparation fence
+is at most twenty seconds and is not renewed by reads or retries. Member removal,
+organization archive, policy-epoch changes and session logout invalidate access;
+retained selection bytes do not preserve authority or grant automatic clearing.
+
+After an unknown outcome, retry only the original key or use `RecoverOperation`
+with its original binding. A fresh service returns original session/version
+history under current exact-session and query policy; it never re-prepares a
+selection, restores an old target or reveals credentials. Retain original lookup,
+fingerprint, request-key and envelope keys for supported sessions and recovery.
+This native profile does not add an HTTP endpoint, Reference integration or a
+whole-M22 completion claim.
+
 ## Original-key team role assignment and exact-binding revocation
 
 `OperationService.AssignTeamDynamicRole` retains chosen organization, role and

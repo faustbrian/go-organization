@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add opt-in exact-session active organization set/get/switch/clear for genuine
+  single-factor password bearer sessions, retaining current membership and
+  organization policy authority. Selection, protected audit and lifecycle effects
+  commit together without touching sibling sessions, family authority or original
+  authentication/lifetime. Install the session owner's additive selection
+  migration and compose its selected native reader with this repository.
+  Original-key recovery is metadata-only and currently authorized; it cannot
+  renew a deadline or restore an earlier choice. Cookie/MFA/passkey selection
+  remains denied. Selected policies requiring signals beyond native velocity
+  fail closed at composition; unselected factories remain unchanged. No
+  HTTP/Reference selection surface is enabled.
+
 - Add original-key team custom-role assignment and natural exact-binding
   revocation through `OperationService`, retaining native role/team epochs,
   compatible membership, current authority, atomic audit/outbox and original

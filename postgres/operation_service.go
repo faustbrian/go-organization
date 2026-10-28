@@ -327,7 +327,9 @@ func (s *operationServiceState) keyedPreparation(ctx context.Context, auth organ
 		return p.service.Execute(ctx, prepared)
 	}
 	out, err = p.service.Recover(ctx, auth, Recovery{Binding: binding})
-	if out.Receipt.Binding.CommandID == "" {
+	// Exact-session selection requires current disclosure authority even for
+	// correlation; a sibling or denied caller must receive no original binding.
+	if out.Receipt.Binding.CommandID == "" && op != organization.ActiveSet {
 		// Confirmed original mapping is correlation only. Missing/denied
 		// journals retain the kernel's error, not an invented NotCommitted or
 		// successful receipt, and never permit new execution under this key.
@@ -342,7 +344,7 @@ func operationNetwork(network string) bool {
 }
 
 func operationCorrelation(b identity.CommandBinding) organization.StoreResult {
-	return organization.StoreResult{OrganizationID: organization.ID(b.RecordID), MemberID: b.UserID, Receipt: identity.CommandResult{Binding: b}}
+	return mutationResult(b, identity.CommandResult{Binding: b})
 }
 
 func (s *operationServiceState) actor(ctx context.Context, auth organization.Authentication) (identity.UserID, error) {

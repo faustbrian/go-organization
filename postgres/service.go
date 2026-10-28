@@ -36,8 +36,9 @@ type ServiceConfig struct {
 
 // Service provides native public organization operations without application-
 // written domain stores, transaction glue, private authority or retry journals.
-// Explicit bearer transport and uncached organization selection are supported;
-// HTTP/browser transport, active selections and other session profiles are not.
+// Explicit bearer transport is supported. Active organization selection requires
+// ContributorConfig.ActiveOrganization and the selected native session reader;
+// cookie/MFA/passkey selection and an HTTP selection handler are not provided.
 type Service struct {
 	core         *organization.Service
 	participant  *Contributor
@@ -55,10 +56,20 @@ func NewService(p *Contributor, c ServiceConfig) (*Service, error) {
 	if c.Core.Lifecycle != p.config.Lifecycle {
 		return nil, organization.ErrInvalidInput
 	}
+	// This selector composes protected velocity counters, not richer signal
+	// providers. Validate the actual native repository's immutable policy so
+	// an enabled status/CAPTCHA requirement cannot be silently skipped.
+	if p.selection != nil && c.Risk.ValidateCounterOnlyOperation(risk.Action(organization.ActiveSet)) != nil {
+		return nil, organization.ErrInvalidInput
+	}
 	if p.config.OwnerTransferPrimary != nil && !p.config.OwnerTransferPrimary.Matches(string(organization.OwnerTransfer), c.Core.OwnerTransferAudience) {
 		return nil, organization.ErrInvalidInput
 	}
-	core, e := organization.NewService(c.Sessions, p.repository, c.Authorization, c.Core)
+	factory := organization.NewService
+	if p.selection != nil {
+		factory = organization.NewActiveOrganizationService
+	}
+	core, e := factory(c.Sessions, p.repository, c.Authorization, c.Core)
 	if e != nil {
 		return nil, e
 	}
@@ -248,6 +259,9 @@ func (s *Service) plan(c identity.Command, counters kernel.CommandCounterPlan, n
 	if e != nil {
 		return kernel.CommandPlan{}, e
 	}
+	if n.operation == organization.ActiveSet {
+		return s.activeOrganizationPlan(c, counters, now, n)
+	}
 	event, action := events(n.operation)
 	builder, e := audit.NewBuilder(audit.BuilderConfig{})
 	if e != nil {
@@ -298,6 +312,9 @@ func (s *Service) ListMembers(ctx context.Context, r organization.ReadRequest) (
 func (s *Service) Recover(ctx context.Context, a organization.Authentication, r Recovery) (organization.StoreResult, error) {
 	if ctx == nil || s == nil {
 		return organization.StoreResult{}, organization.ErrInvalidInput
+	}
+	if organization.Operation(r.Binding.OperationID) == organization.ActiveSet {
+		return s.recoverActiveOrganization(ctx, a, r.Binding)
 	}
 	b := r.Binding
 	op := organization.Operation(b.OperationID)
@@ -499,7 +516,7 @@ func (u *unitOfWork) Execute(ctx context.Context, c organization.Command) (organ
 	s, p := u.service, u.prepared
 	reservation, receipt, e := s.config.Coordinator.ReserveCommand(ctx, p.binding, p.native, p.plan)
 	if e != nil || reservation == (kernel.Reservation{}) {
-		if (p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID)) || isDynamicRoleMutation(organization.Operation(p.binding.OperationID)) || isLifecycleMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
+		if (p.binding.OperationID == string(organization.ActiveSet) || p.binding.OperationID == string(organization.UpdateMember) || isDomainMutation(organization.Operation(p.binding.OperationID)) || isDynamicRoleMutation(organization.Operation(p.binding.OperationID)) || isLifecycleMutation(organization.Operation(p.binding.OperationID))) && e == nil && receipt.Outcome != identity.CommitOutcomeInvalid {
 			// Terminal replay skips Apply's protected admission. Use current
 			// session/membership/action/query authority for historical disclosure,
 			// including self-demotion, domain custody and custom roles, never the old manager
@@ -558,6 +575,9 @@ func (u *unitOfWork) Recover(ctx context.Context, id identity.CommandID) (organi
 }
 
 func mutationResult(b identity.CommandBinding, r identity.CommandResult) organization.StoreResult {
+	if organization.Operation(b.OperationID) == organization.ActiveSet {
+		return organization.StoreResult{Receipt: r, MemberID: b.UserID}
+	}
 	return organization.StoreResult{Receipt: r, OrganizationID: organization.ID(b.RecordID), MemberID: b.UserID}
 }
 func unknown(b identity.CommandBinding) identity.CommandResult {
