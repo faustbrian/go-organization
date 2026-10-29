@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add storage-neutral, owner-only credential authority observations with optional
+  actual current membership and original bounded freshness. Organization policy
+  and credential revocation epochs are separate; member-only reads are unchanged.
+  These trusted storage facts grant no authentication or permission.
+
 - Add an explicitly selected password/bearer active-organization API. Selection
   and clear bind one exact session CAS to current organization membership and
   the organization aggregate epoch; current reads deny stale selection without

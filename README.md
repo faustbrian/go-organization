@@ -1,5 +1,25 @@
 # go-organization
 
+## Trusted organization credential authority
+
+`CredentialAuthorityReader` is an optional storage projection for credential
+owners, separate from the member-authenticated `Repository.Read` contract.
+Request `CredentialAuthorityQuery{TenantID: tenant, OrganizationID: organization}`
+for current active owner authority without borrowing the key creator's identity.
+Set `ActorID` only when the operation also needs that actual human's current
+membership. Owner-only observations contain a zero `Actor`; failures contain no
+positive projection.
+
+`Version` is the current organization aggregate/policy epoch.
+`CredentialVersion` is the independent durable organization credential epoch:
+member/role changes do not revoke independent organization keys; archive/delete
+advance it, and restoration cannot rewind it. A credential consumer binds the
+credential's owner version to `CredentialVersion` and evaluates current policy
+separately. `Validate(query, now)` checks exact bindings and the original read's
+at-most-twenty-second validity; copying or retrying cannot renew it. These types
+authenticate nobody and grant no permission. A durable adapter must fence the
+same facts inside the caller's protected transaction before use.
+
 ## Explicit active-organization profile
 
 `NewActiveOrganizationService` opts into genuine single-factor password/bearer
