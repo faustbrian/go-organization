@@ -1,5 +1,46 @@
 # go-organization/postgres
 
+## Organization-owned credential authority
+
+Install the optional `CredentialAuthorityMigrationSource` at an unused permanent
+version after the existing organization history before selecting credential
+authority. It adds `credential_version` to the actual organization row, not a
+second authority table. Existing rows and ordinary inserts start at one; trusted
+source imports may supply their existing positive epoch. The single invoker row
+trigger advances the epoch when entering archived/deleted state, including when
+older lifecycle writers omit the new column. Restore and membership/role changes
+cannot rewind or advance it. Manual UPDATE epoch changes fail; exhaustion fails
+the entire statement rather than wrapping. Default member-only bootstraps and
+existing migration checksums remain unchanged.
+
+The transactional ALTER requires an exclusive table lock. Use a bounded migration
+context and deployment lock budget; a timeout fails the migration. Reapply through
+the normal migration runner, never by changing its ledger. Recovery is
+roll-forward because dropping credential revocation would revive old authority.
+Schema owners who can disable triggers remain outside this integrity boundary.
+
+`Repository.ObserveCredentialAuthority` accepts the root's trusted query and
+returns active owner facts without a creator user. Set `ActorID` only for an
+operation requiring that actual active member and current scoped authorization.
+No actor means a zero member, not an inferred owner/creator. The returned
+`Version` is current aggregate/policy authority; credential consumers bind their
+stored owner epoch to `CredentialVersion` and enforce current policy separately.
+Missing migration, inactive/absent owner, removed member or unavailable authority
+returns no positive observation. Reads are uncached and retain original read
+start, verification and expiry, with at most twenty seconds from read start.
+
+Inside an existing identity coordinator invocation, call
+`Repository.RequireCredentialAuthority(ctx, work, contributor, observation)`.
+The exact current contributor and tenant must match. The fence retains shared
+locks on the actual owner and optional member, checks both organization epochs,
+member versions/role and scoped authorization, then rechecks original freshness
+against the primary clock after lock waits. It owns no transaction/coordinator,
+never invokes caller policy and does not grant authentication or permission.
+Run caller policy before protected execution and bind its current policy epoch;
+do not run policy callbacks under these retained locks. Existing human-only
+`Read` and selected-session authority remain separate and unchanged. This
+boundary is not API-key issuance, lifecycle orchestration or an HTTP endpoint.
+
 ## Exact-session active organization selection
 
 Opt in with `ContributorConfig.ActiveOrganization`. Compose the native session

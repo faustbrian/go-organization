@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add optional active organization credential authority reads and current-Work
+  fences without borrowing a key creator's identity. An additive, forward-only
+  migration separates credential revocation from policy/member epochs and fences
+  older archive/delete writers; restoration cannot revive an old credential
+  epoch. Existing member-only profiles do not require the migration. Consumers
+  still own credential authentication and permission decisions.
+
 - Add opt-in exact-session active organization set/get/switch/clear for genuine
   single-factor password bearer sessions, retaining current membership and
   organization policy authority. Selection, protected audit and lifecycle effects
