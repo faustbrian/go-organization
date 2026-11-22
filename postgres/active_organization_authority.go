@@ -63,8 +63,11 @@ func (r *Repository) ObserveOrganizationSession(ctx context.Context, record sess
 	if err != nil {
 		return sessionpg.OrganizationSessionAuthorityObservation{}, publicTeamAuthorityError(err)
 	}
-	if !view.Actor.Role.Valid() || current.Version != view.Actor.AuthorizationVersion || view.Organization.Version != original.Version || !time.Now().Before(start.Add(20*time.Second)) {
+	if !view.Actor.Role.Valid() || current.Version != view.Actor.AuthorizationVersion || !time.Now().Before(start.Add(20*time.Second)) {
 		return sessionpg.OrganizationSessionAuthorityObservation{}, organization.ErrForbidden
+	}
+	if view.Organization.Version != original.Version {
+		return sessionpg.OrganizationSessionAuthorityObservation{}, session.ErrUnauthenticated
 	}
 	return sessionpg.OrganizationSessionAuthorityObservation{OrganizationID: string(id), Authority: session.AuthorityBinding{ScopeKey: original.ScopeKey, Version: view.Organization.Version}, ReadStartedAt: start, ValidUntil: start.Add(20 * time.Second)}, nil
 }

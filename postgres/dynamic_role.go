@@ -140,7 +140,12 @@ func (r *Repository) readDynamicRoles(ctx context.Context, q organization.Query,
 		if q.IncludeTeamRoles {
 			query = effectiveTeamRolesSQL
 		}
-		rows, e := r.pool.Raw().Query(ctx, query, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit+1))
+		var rows pgx.Rows
+		if r.providerRoleGrants && q.Operation == organization.CheckPermission {
+			rows, e = r.queryProviderRolePermissions(ctx, q, v)
+		} else {
+			rows, e = r.pool.Raw().Query(ctx, query, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit+1))
+		}
 		if e != nil {
 			return organization.View{}, storageError(ctx, e)
 		}

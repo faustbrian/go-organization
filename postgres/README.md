@@ -562,6 +562,33 @@ advance the target's existing organization-scoped authorization authority.
 `Recovery`/`Recover` retain the original outcome, never replay a grant, and
 require the original actor's current owner/administrator authority and session.
 
+### Provider-owned custom roles
+
+Apply `ProviderRoleGrantMigrationSource` after the custom-role history and before
+selecting `NewRepositoryWithProviderRoleGrants`. It adds empty tables; older
+readers and writers can continue to use their existing direct and team rows.
+Use this profile only where the durable federation owner maintains provider
+source generation and mapping alongside provider changes. A missing migration
+or more than 128 retained provider snapshots for a member fails closed. If the
+new profile is rolled back, retain the tables and do not route selected grants
+through a direct-only evaluator that could ignore provider denies.
+
+The federation owner installs `ProviderRoleSourceProjectionMigrationSource`
+after the grant tables and maintains source eligibility in its own durable
+lifecycle transaction. It cannot restore an older generation. The selected
+sign-in contributor binds `ProviderRoleGrantUpdate.Field` to the original
+command and calls `ApplyProviderRoleGrantUpdate` inside that command's current
+Work. The update replaces only that provider's grant set for the verified
+linked member; an explicit empty set withdraws it. It does not authorize
+session issuance or create memberships, role definitions, or provider links.
+Use `PrepareProviderRoleGrantUpdate` before preparing a new session to bind its
+expected organization policy revision. Apply rechecks that prediction inside
+the original Work without refreshing the member observation. Effective binding
+changes advance both the organization revision and member authorization; a
+retained identical grant keeps them unchanged. Retiring a source with retained
+grants advances policy at commit. If another organization writer holds the
+required lock, the attempted retirement fails atomically instead of waiting.
+
 ## Domain reservation custody
 
 Apply `DomainClaimMigrationSource` after `MigrationSource`, then select identical

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add an opt-in effective permission read profile for independently owned
+  provider role grants. Exact provider generation, mapping, and active
+  membership fence those grants alongside independent direct and team grants.
+  An explicit update applies within the original federated session transaction;
+  a separate lifecycle projector records whether a provider can grant roles.
+  Binding changes advance the organization policy revision. Existing readers
+  and direct or team role writers remain unchanged.
+
 - Add trusted native `Repository.ResolveDomainProof` for an exact canonical
   domain and tenant, using existing globally unique requested claims and exact
   current proof history. Uncached primary reads deny foreign, inactive,

@@ -26,9 +26,10 @@ type Config struct{ MaximumDuration time.Duration }
 // target user reads to the existing identity owner. Pool shutdown stays caller-
 // owned. Immutable configuration permits concurrent independent operations.
 type Repository struct {
-	pool      *database.Pool
-	directory *kernel.Repository
-	maximum   time.Duration
+	pool               *database.Pool
+	directory          *kernel.Repository
+	maximum            time.Duration
+	providerRoleGrants bool
 }
 
 var _ organization.Repository = (*Repository)(nil)

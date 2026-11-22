@@ -61,8 +61,8 @@ github.com/faustbrian/go-http-middleware/v2 v2.0.2-0.20261014105810-969bbbf00668
 github.com/faustbrian/go-http-middleware/v2 v2.0.2-0.20261014105810-969bbbf00668/go.mod h1:goKGI1nadKdGJafrwlIiAGFqEmawl3TZZzfIZLAGHKA=
 github.com/faustbrian/go-identifier/v2 v2.0.3-0.20261015083104-9892f17723c0 h1:9c8SSljpleYeVm7JKTCmi/onICCAc/DjX2RoHm9MXog=
 github.com/faustbrian/go-identifier/v2 v2.0.3-0.20261015083104-9892f17723c0/go.mod h1:Js70Ed9P2OFoP6fWMgJvzPb29O+sauJo687HIMK/ApU=
-github.com/faustbrian/go-identity v0.0.0-20261021021214-46ae60703809 h1:JuPdLhQODjreTV/MF2JR1W6ApR6HTrHz9aub9F0rOuI=
-github.com/faustbrian/go-identity v0.0.0-20261021021214-46ae60703809/go.mod h1:CaT22sYyoJNiv7Dk9qMNHsDon97tytbbpjMq7/2ztcM=
+github.com/faustbrian/go-identity v0.0.0-20261122023921-087c28e1764c h1:DIlZSzJlMydI23C6AE6cJgucbF9hXiSuxe9btOfSDks=
+github.com/faustbrian/go-identity v0.0.0-20261122023921-087c28e1764c/go.mod h1:CaT22sYyoJNiv7Dk9qMNHsDon97tytbbpjMq7/2ztcM=
 github.com/faustbrian/go-identity/delivery v0.0.0-20261015061706-1f0b46ab1053 h1:XFlSTdRmnTbUMrVY1nRcwFUCtNR19cqP9XUoKqreHd0=
 github.com/faustbrian/go-identity/delivery v0.0.0-20261015061706-1f0b46ab1053/go.mod h1:gbHmgfef5iSUtki7ZEa7HnqngXCugftiOgDlPQGwYx0=
 github.com/faustbrian/go-identity/delivery/postgres v0.0.0-20261015104034-f16881100907 h1:dLBvHl7G/7ZAuvrlF/BtO3KDEnvIGXNVMvOU9YslG0s=
@@ -101,8 +101,8 @@ github.com/faustbrian/go-identity/password/postgres v0.0.0-20261028082559-7ca5d4
 github.com/faustbrian/go-identity/password/postgres v0.0.0-20261028082559-7ca5d4db76d2/go.mod h1:RONjPqk90ksuQ4voGAH8SOCCd0SQ/TQWLvu3kvScflw=
 github.com/faustbrian/go-identity/phone v0.0.0-20261020215141-387cc56b91f6 h1:D+H1oYaOCQYGuvltxahVnzZCmVQTd7s5jzdV3RLkrUc=
 github.com/faustbrian/go-identity/phone v0.0.0-20261020215141-387cc56b91f6/go.mod h1:rQXIEiPXU/DMLt80tkafJnol/ayyUHFoS2ya3hVR1nE=
-github.com/faustbrian/go-identity/postgres v0.0.0-20261025193805-9ccf9a606602 h1:StXq1Y3WoBNWiTUvuBoYzdzqVxPglNLvk4Z0xCCu6+8=
-github.com/faustbrian/go-identity/postgres v0.0.0-20261025193805-9ccf9a606602/go.mod h1:m//LlYNUNgr+jJP2YDW0FQPdX8TOJkAsLTCIUYRtE60=
+github.com/faustbrian/go-identity/postgres v0.0.0-20261122115638-03eecbdd5e31 h1:hBIusx1QzcmqOUD+hZi0hrcqo6kHp+vULeWpJPtea/M=
+github.com/faustbrian/go-identity/postgres v0.0.0-20261122115638-03eecbdd5e31/go.mod h1:I4qALkzjkYOV43ywS4Apmn7LqtogvIYULvFlaCGA6qk=
 github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789 h1:AcnrkJ3z7oITrIUc6nSJX3OwLitJek2bRJDRu+eE7SQ=
 github.com/faustbrian/go-identity/reference v0.0.0-20261018031204-02c6195bd789/go.mod h1:O/hmm6Lqqb8SknW6SGEhv+EornZU+sR8KVKCXK5h+uY=
 github.com/faustbrian/go-identity/risk v0.0.0-20261028092233-945b17fc88c4 h1:QQNah/VhUsjqLQ7knO236HHpK/x2gC1m6aPUKTOtFr8=
@@ -129,8 +129,8 @@ github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc h1:u
 github.com/faustbrian/go-migrations/v3 v3.1.1-0.20261015110643-ca105f265cfc/go.mod h1:h9WNJuNOR77bYc9ni8VPeyFTAyQcmyjCAmT5Bko8w60=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820 h1:/5nveXXAZ0rYYsxG8uJbQDxkC9rse6kIEOeq2yGr2C8=
 github.com/faustbrian/go-openapi/v2 v2.0.3-0.20261015044355-77bfaaffc820/go.mod h1:BpEy2DPz/YR5C9gcBcKAxkG4fO+jo6WLwjNDy075MYY=
-github.com/faustbrian/go-organization v0.0.0-20261029043426-3ab7798be548 h1:+G3VASc5IUzXWbeCxzghizTbe/LzQdn6kLI+nZEHC9Y=
-github.com/faustbrian/go-organization v0.0.0-20261029043426-3ab7798be548/go.mod h1:8EBHPVyBEdcoI0/3fOdwKPj/8YgQcjUtAcIPROGg5Ro=
+github.com/faustbrian/go-organization v0.0.0-20261122135635-30af6abd1547 h1:cvTP7C5AXuaeaDe3/aKbVfp388cQQAGtyoMXQWhSqF4=
+github.com/faustbrian/go-organization v0.0.0-20261122135635-30af6abd1547/go.mod h1:8EBHPVyBEdcoI0/3fOdwKPj/8YgQcjUtAcIPROGg5Ro=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff h1:8BIB469appqyn79T6j/sJQAS3dN6+budadfpPLwtqIg=
 github.com/faustbrian/go-password/v2 v2.0.2-0.20261015050515-4eb0fefa60ff/go.mod h1:Tqc83xc8RVAsi6JAW3dkKM1OFVos7cfayeNHBbWstsA=
 github.com/faustbrian/go-postgres v1.1.1-0.20260912090843-61261695bcc7 h1:yYXsPBwz+mm8JMdWfl+DcTdeD52C/zlBW2H4Tb40gKk=
