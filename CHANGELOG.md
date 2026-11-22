@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add an immutable provider-owned custom-role replacement value. An explicit
+  empty set withdraws that source's grants, without affecting direct and team
+  grants. Preserve exact scope, membership and mapping versions, and both
+  original sign-in and verified assertion timestamps. The value does not grant
+  authority or mutate storage; native owners must verify those separately.
+
 - Add storage-neutral, owner-only credential authority observations with optional
   actual current membership and original bounded freshness. Organization policy
   and credential revocation epochs are separate; member-only reads are unchanged.
