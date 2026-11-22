@@ -1,5 +1,14 @@
 # go-organization/postgres
 
+## Enterprise first-login membership
+
+`NewProviderJITMembership` binds the original organization observation and
+admission limits to the prospective user in the enterprise callback command.
+`ApplyProviderJITMembership` requires the identity owner's same-transaction
+creation proof, adds an ordinary member only and advances organization policy
+once. The SSO owner binds the session to that successor revision. This never
+reactivates a removed membership or changes the organization credential epoch.
+
 ## Organization-owned credential authority
 
 Install the optional `CredentialAuthorityMigrationSource` at an unused permanent

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add ordinary membership for a user newly created by the same enterprise
+  OIDC callback. Reuse existing membership limits, authorization and counters;
+  a pre-existing user or removed membership cannot enter through this API.
+
 - Add an opt-in effective permission read profile for independently owned
   provider role grants. Exact provider generation, mapping, and active
   membership fence those grants alongside independent direct and team grants.

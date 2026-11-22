@@ -72,12 +72,7 @@ func (p *Contributor) ApplyFeature(ctx context.Context, w kernel.Work, command i
 	// creation. No user hook, policy callback or external IO occurs under locks.
 	// This deliberately coarse first profile makes per-user/per-tenant limits
 	// correct across organizations without an unbounded lock/fan-out protocol.
-	if _, e = w.Exec(ctx, `INSERT INTO organization.tenant_locks(tenant_id) VALUES($1) ON CONFLICT DO NOTHING`, string(b.TenantID)); e != nil {
-		return identity.FeatureReceipt{}, e
-	}
-	var locked string
-	rows, e := w.Query(ctx, `SELECT tenant_id FROM organization.tenant_locks WHERE tenant_id=$1 FOR UPDATE`, string(b.TenantID))
-	if e = one(rows, e, &locked); e != nil {
+	if e = lockMembershipTenant(ctx, w, b.TenantID); e != nil {
 		return identity.FeatureReceipt{}, e
 	}
 	if c.operation == organization.Create {
@@ -272,19 +267,8 @@ func (p *Contributor) mutateMember(ctx context.Context, w kernel.Work, c nativeC
 		if target.Active {
 			return identity.ConflictError{}
 		}
-		if uint64(members) >= p.config.MaximumMembers {
-			return identity.ForbiddenError{}
-		}
-		var memberOf int64
-		rows, e = w.Query(ctx, `SELECT count(*) FROM organization.memberships WHERE tenant_id=$1 AND user_id=$2 AND state='active'`, string(b.TenantID), string(b.UserID))
-		if e = one(rows, e, &memberOf); e != nil {
+		if e = requireMembershipCapacity(ctx, w, b.TenantID, b.UserID, members, p.config.MaximumMembers, p.config.MaximumPerUser); e != nil {
 			return e
-		}
-		if memberOf < 0 {
-			return identity.UnavailableError{}
-		}
-		if uint64(memberOf) >= p.config.MaximumPerUser {
-			return identity.ForbiddenError{}
 		}
 	} else {
 		if !target.Active {
@@ -329,22 +313,71 @@ func (p *Contributor) mutateMember(ctx context.Context, w kernel.Work, c nativeC
 			ownerDelta = -1
 		}
 	}
-	n, e := w.Exec(ctx, `UPDATE organization.organizations SET version=version+1,member_count=member_count+$4,owner_count=owner_count+$5 WHERE tenant_id=$1 AND organization_id=$2 AND version=$3::numeric AND version<18446744073709551615 AND member_count+$4>=1 AND owner_count+$5>=1`, string(b.TenantID), string(c.org.ID), strconv.FormatUint(c.org.Version, 10), delta, ownerDelta)
-	if e != nil {
+	if e = advanceMembershipOrganization(ctx, w, b.TenantID, c.org.ID, c.org.Version, delta, ownerDelta); e != nil {
 		return e
 	}
-	if n != 1 {
-		return identity.ConflictError{}
-	}
 	if c.operation == organization.AddMember {
-		n, e = w.Exec(ctx, `INSERT INTO organization.memberships(tenant_id,organization_id,user_id,role,state,version,authorization_version) VALUES($1,$2,$3,$4,'active',$5::numeric,$6::numeric) ON CONFLICT(tenant_id,organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,state='active',version=EXCLUDED.version,authorization_version=EXCLUDED.authorization_version WHERE organization.memberships.state='removed' AND organization.memberships.version=$7::numeric`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(target.Version+1, 10), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
-	} else if c.operation == organization.UpdateMember {
+		return persistAddedMember(ctx, w, b.TenantID, c.org.ID, b.UserID, c.role, target.Version, next.Version)
+	}
+	var n int64
+	if c.operation == organization.UpdateMember {
 		n, e = w.Exec(ctx, `UPDATE organization.memberships SET role=$4,version=version+1,authorization_version=$5::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$6::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
 	} else {
 		n, e = w.Exec(ctx, `UPDATE organization.memberships SET state='removed',version=version+1,authorization_version=$4::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$5::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
 	}
 	if e != nil {
 		return e
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
+}
+
+func lockMembershipTenant(ctx context.Context, w kernel.Work, tenant identity.TenantID) error {
+	if _, err := w.Exec(ctx, `INSERT INTO organization.tenant_locks(tenant_id) VALUES($1) ON CONFLICT DO NOTHING`, string(tenant)); err != nil {
+		return err
+	}
+	var locked string
+	rows, err := w.Query(ctx, `SELECT tenant_id FROM organization.tenant_locks WHERE tenant_id=$1 FOR UPDATE`, string(tenant))
+	return one(rows, err, &locked)
+}
+
+func requireMembershipCapacity(ctx context.Context, w kernel.Work, tenant identity.TenantID, user identity.UserID, members int64, maximumMembers, maximumPerUser uint64) error {
+	if uint64(members) >= maximumMembers {
+		return identity.ForbiddenError{}
+	}
+	var memberOf int64
+	rows, err := w.Query(ctx, `SELECT count(*) FROM organization.memberships WHERE tenant_id=$1 AND user_id=$2 AND state='active'`, string(tenant), string(user))
+	if err = one(rows, err, &memberOf); err != nil {
+		return err
+	}
+	if memberOf < 0 {
+		return identity.UnavailableError{}
+	}
+	if uint64(memberOf) >= maximumPerUser {
+		return identity.ForbiddenError{}
+	}
+	return nil
+}
+
+func advanceMembershipOrganization(ctx context.Context, w kernel.Work, tenant identity.TenantID, org organization.ID, version uint64, memberDelta, ownerDelta int64) error {
+	n, err := w.Exec(ctx, `UPDATE organization.organizations SET version=version+1,member_count=member_count+$4,owner_count=owner_count+$5 WHERE tenant_id=$1 AND organization_id=$2 AND version=$3::numeric AND version<18446744073709551615 AND member_count+$4>=1 AND owner_count+$5>=1`, string(tenant), string(org), strconv.FormatUint(version, 10), memberDelta, ownerDelta)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
+}
+
+// An absent predecessor has version zero. Stored membership versions are
+// positive, so this existing upsert cannot re-admit a tombstone in that case.
+func persistAddedMember(ctx context.Context, w kernel.Work, tenant identity.TenantID, org organization.ID, user identity.UserID, role organization.Role, predecessor, authorizationVersion uint64) error {
+	n, err := w.Exec(ctx, `INSERT INTO organization.memberships(tenant_id,organization_id,user_id,role,state,version,authorization_version) VALUES($1,$2,$3,$4,'active',$5::numeric,$6::numeric) ON CONFLICT(tenant_id,organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,state='active',version=EXCLUDED.version,authorization_version=EXCLUDED.authorization_version WHERE organization.memberships.state='removed' AND organization.memberships.version=$7::numeric`, string(tenant), string(org), string(user), string(role), strconv.FormatUint(predecessor+1, 10), strconv.FormatUint(authorizationVersion, 10), strconv.FormatUint(predecessor, 10))
+	if err != nil {
+		return err
 	}
 	if n != 1 {
 		return identity.ConflictError{}
