@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add trusted native `Repository.ResolveDomainProof` for an exact canonical
+  domain and tenant, using existing globally unique requested claims and exact
+  current proof history. Uncached primary reads deny foreign, inactive,
+  withdrawn, retired, revoked and expired authority without enumeration. The
+  detached organization-owned proof still requires exact current acceptance;
+  no migration, public discovery, provider routing or login authority is added.
+
 - Add optional active organization credential authority reads and current-Work
   fences without borrowing a key creator's identity. An additive, forward-only
   migration separates credential revocation from policy/member epochs and fences

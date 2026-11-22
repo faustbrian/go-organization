@@ -580,6 +580,31 @@ use the original command identity; reconstruction needs only the safe `Recovery`
 metadata and fresh current owner/administrator authentication. Neither a
 reservation nor a historical committed receipt is domain ownership evidence.
 
+### Trusted current domain-proof resolution
+
+After installing the [domain-evidence profile](../docs/domain-evidence.md),
+trusted native composition may call
+`Repository.ResolveDomainProof(ctx, tenantID, canonicalDomain)` to resolve the
+current organization-owned `organization.DomainProof`. Supply the exact canonical
+domain; this method does not normalize input or accept an email suffix. It uses
+the existing global requested-claim uniqueness index and exact scoped proof
+history, without a new migration, cache, route table or competing proof authority.
+
+Only a requested, unretired claim in the supplied tenant and an active
+organization can yield its latest unrevoked proof with matching canonical domain
+and claim version and an exclusive expiry checked against primary database time.
+Missing, foreign, withdrawn, retired, expired and revoked authority uniformly
+return `organization.ErrForbidden` without revealing an organization. The returned
+value is detached and retains every original proof dimension. Invalid canonical
+input/scope returns `ErrInvalidInput`; caller cancellation and the repository's
+read budget remain effective.
+
+This repository-only service-to-service port is not a public discovery endpoint,
+human authentication, provider selection or login authority. Consumers bind the
+complete proof and revalidate its exact `DomainProofKey` through `GetDomainProof`
+at their own acceptance boundary. The root `DomainProofReader` contract remains
+unchanged, and authenticated management reads still use `DomainEvidenceService`.
+
 ## Composition and adoption
 
 1. Apply the identity directory/credential/status, native session, authorization
