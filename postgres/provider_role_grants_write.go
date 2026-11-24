@@ -126,12 +126,28 @@ func (ProviderRoleGrantUpdate) Format(s fmt.State, _ rune) {
 }
 
 // ApplyProviderRoleGrantUpdate replaces only the exact provider's role grants
-// inside the registered enterprise callback's existing Work. Call once after
+// inside the registered enterprise OIDC callback's existing Work. Call once after
 // session row locks and before the first organization session fence. The SSO
 // owner must propagate errors, fence the verified provider/flow at commit, and
 // recover through the original coordinator. No transaction or session is
 // created here, and application-owned direct/team assignments are never changed.
 func (r *Repository) ApplyProviderRoleGrantUpdate(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, update ProviderRoleGrantUpdate) error {
+	return r.applyProviderRoleGrantUpdate(ctx, w, owner, command, update, requireOIDCProviderRoleGrantAccount)
+}
+
+// ApplySAMLProviderRoleGrantUpdate replaces the exact provider's role grants
+// within the original SP SAML callback Work. It binds the linked identity
+// account to the target organization/provider namespace and retains the same
+// application-role isolation and rollback semantics as the OIDC operation.
+// Invoke once after native session writes and before the organization fence.
+// This retains no Work and does not select or authenticate signed claims.
+func (r *Repository) ApplySAMLProviderRoleGrantUpdate(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, update ProviderRoleGrantUpdate) error {
+	return r.applyProviderRoleGrantUpdate(ctx, w, owner, command, update, requireSAMLProviderRoleGrantAccount)
+}
+
+type providerRoleGrantAccountFence func(context.Context, kernel.Work, kernel.FeatureExecutionContributor, identity.Command, organization.ProviderRoleGrantScope) error
+
+func (r *Repository) applyProviderRoleGrantUpdate(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, update ProviderRoleGrantUpdate, requireAccount providerRoleGrantAccountFence) error {
 	if r == nil || r.pool == nil || ctx == nil || update.state == nil {
 		return identity.ForbiddenError{}
 	}
@@ -144,13 +160,9 @@ func (r *Repository) ApplyProviderRoleGrantUpdate(ctx context.Context, w kernel.
 	if !matchesProviderRoleGrantField(feature.Fields, u.fingerprint) {
 		return identity.ForbiddenError{}
 	}
-	account, err := kernel.SSOOIDCSigninAccount(command)
-	if err != nil || account.Account.TenantID != input.Scope.TenantID || account.Account.UserID != input.Scope.UserID {
-		return identity.ForbiddenError{}
-	}
 	ctx, cancel := context.WithTimeout(ctx, r.maximum)
 	defer cancel()
-	if _, err := w.RequireSSOOIDCSigninProviderAccount(ctx, owner, command); err != nil {
+	if err := requireAccount(ctx, w, owner, command, input.Scope); err != nil {
 		return err
 	}
 	if err := r.lockProviderRoleMember(ctx, w, owner, u, input); err != nil {
@@ -160,6 +172,32 @@ func (r *Repository) ApplyProviderRoleGrantUpdate(ctx context.Context, w kernel.
 		return err
 	}
 	return r.persistProviderRoleGrantUpdate(ctx, w, u, input)
+}
+
+func requireOIDCProviderRoleGrantAccount(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, scope organization.ProviderRoleGrantScope) error {
+	account, err := kernel.SSOOIDCSigninAccount(command)
+	if err != nil || account.Account.TenantID != scope.TenantID || account.Account.UserID != scope.UserID {
+		return identity.ForbiddenError{}
+	}
+	_, err = w.RequireSSOOIDCSigninProviderAccount(ctx, owner, command)
+	return err
+}
+
+func requireSAMLProviderRoleGrantAccount(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, scope organization.ProviderRoleGrantScope) error {
+	account, err := kernel.SSOSAMLSigninAccount(command)
+	if err != nil || !matchesSAMLProviderRoleAccount(account.Account, scope) {
+		return identity.ForbiddenError{}
+	}
+	_, err = w.RequireSSOSAMLSigninProviderAccount(ctx, owner, command)
+	return err
+}
+
+func matchesSAMLProviderRoleAccount(account identity.Account, scope organization.ProviderRoleGrantScope) bool {
+	if account.TenantID != scope.TenantID || account.UserID != scope.UserID {
+		return false
+	}
+	namespace, err := kernel.SSOSAMLAccountProviderNamespace(string(scope.OrganizationID), string(scope.ProviderID))
+	return err == nil && account.Provider == namespace
 }
 
 func matchesProviderRoleGrantField(fields []identity.FeatureField, digest [32]byte) bool {

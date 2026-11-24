@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Allow the native SP SAML callback to replace only its own provider role
+  grants in the original transaction, with an exact linked-account namespace
+  check. OIDC and application-owned assignments are unchanged.
+
 - Add ordinary membership for a user newly created by the same enterprise
   OIDC callback. Reuse existing membership limits, authorization and counters;
   a pre-existing user or removed membership cannot enter through this API.

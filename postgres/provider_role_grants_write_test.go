@@ -11,6 +11,33 @@ import (
 	organization "github.com/faustbrian/go-organization"
 )
 
+func TestProviderRoleGrantSAMLAccountMustMatchExactScope(t *testing.T) {
+	scope := organization.ProviderRoleGrantScope{TenantID: "tenant-a", OrganizationID: "org-a", UserID: "member", ProviderID: "provider-a"}
+	account := identity.Account{TenantID: scope.TenantID, UserID: scope.UserID,
+		Provider: "sso.saml.v1.db897049df0fc5ff544ff0d74fcfe8c2c60f8c8cfe2e2daa4ca3999cf33610ce"}
+	if !matchesSAMLProviderRoleAccount(account, scope) {
+		t.Fatal("linked account in the exact provider and organization scope denied")
+	}
+	for name, change := range map[string]func(*identity.Account, *organization.ProviderRoleGrantScope){
+		"foreign tenant":       func(a *identity.Account, _ *organization.ProviderRoleGrantScope) { a.TenantID = "tenant-b" },
+		"foreign user":         func(a *identity.Account, _ *organization.ProviderRoleGrantScope) { a.UserID = "other" },
+		"foreign organization": func(_ *identity.Account, s *organization.ProviderRoleGrantScope) { s.OrganizationID = "org-b" },
+		"foreign provider":     func(_ *identity.Account, s *organization.ProviderRoleGrantScope) { s.ProviderID = "provider-b" },
+		"OIDC namespace": func(a *identity.Account, _ *organization.ProviderRoleGrantScope) {
+			a.Provider = "sso.oidc.v1." + a.Provider[12:]
+		},
+		"unscoped provider": func(a *identity.Account, _ *organization.ProviderRoleGrantScope) { a.Provider = "provider-a" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate, target := account, scope
+			change(&candidate, &target)
+			if matchesSAMLProviderRoleAccount(candidate, target) {
+				t.Fatal("account outside the exact SAML grant scope passed")
+			}
+		})
+	}
+}
+
 func TestProviderRoleGrantUpdateBindsExactIntent(t *testing.T) {
 	scope := organization.ProviderRoleGrantScope{TenantID: "tenant", OrganizationID: "org", UserID: "member", ProviderID: "enterprise-a"}
 	started := time.Unix(100, 0).UTC()
