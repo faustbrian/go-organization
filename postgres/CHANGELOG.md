@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add opt-in team membership contributions attributed to an exact directory
+  source. Apply and verify each change inside its original SSO child command.
+  Withdrawals retain provenance and leave local memberships and roles intact.
+
 - Allow the native SP SAML callback to replace only its own provider role
   grants in the original transaction, with an exact linked-account namespace
   check. OIDC and application-owned assignments are unchanged.

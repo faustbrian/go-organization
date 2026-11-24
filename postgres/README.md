@@ -272,6 +272,30 @@ not depend on Reference or the organization HTTP leaf. Native-only fixtures and
 unit/integration tests remain here; the genuine consumers retain their existing
 entrypoints and assertions against normal published adapter pins.
 
+## Directory-owned team membership contributions
+
+Install `DirectoryTeamGrantMigrationSource` after the team lifecycle and
+organization credential-authority migrations, before selecting a directory
+writer. It adds an empty source table without changing existing membership
+rows or requiring a backfill. Disabling the new writer leaves source history
+intact.
+
+The directory owner resolves a configured source to an existing team and
+active organization member. `ObserveDirectoryTeamMembership` returns the
+current local grant and the exact named source grant separately, with current
+target versions. This trusted primary read is not an authorization decision:
+the caller must admit the live provider, connection, generation, mapping and
+service account before relying on it.
+
+Bind `NewDirectoryTeamGrantUpdate` to the original SSO child command using
+its `RecordID`, version transition and `Field`. Call
+`ApplyDirectoryTeamGrantUpdate` inside that command's `ApplyFeature` and
+`RequireDirectoryTeamGrantUpdate` during `CheckFeatureCommit`. Propagate
+errors so the coordinator rolls back. Distinct admitted commands advance only
+that source's epoch; exact retries use the original command receipt. Withdrawal
+does not affect another source or any local membership. Directory grants do
+not enter default team reads or role permission calculations.
+
 ## Advisory slug availability
 
 `Service.SlugAvailable(ctx, organization.SlugAvailableRequest)` authenticates the
