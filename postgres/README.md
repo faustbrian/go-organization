@@ -296,6 +296,12 @@ that source's epoch; exact retries use the original command receipt. Withdrawal
 does not affect another source or any local membership. Directory grants do
 not enter default team reads or role permission calculations.
 
+`DirectoryTeamGrantScope.RecordID` derives the same exact, case-sensitive v1
+source identity without constructing an update or requiring a current grant.
+This permits original-command recovery after withdrawal. The opaque identity
+is correlation only, not a receipt or authority; existing update bytes remain
+unchanged.
+
 ### Explicit directory team roles
 
 Directory team membership alone is not role eligibility. Install
@@ -303,6 +309,16 @@ Directory team membership alone is not role eligibility. Install
 native team role binding histories before enabling this profile. The new
 table starts empty; there is no backfill or implicit promotion. Leave it
 installed on a code rollback.
+
+`ObserveDirectoryTeamRoleBinding` reads the current version of one exact
+tenant, organization, team and custom-role binding from the primary. The
+binding and native role must be active and the native team must still exist
+with a nondeleted retained identity. Missing or inactive selections return a
+zero version and an error. This bounded, uncached trusted persistence read
+does not admit a caller or source, grant a session, or preserve snapshot locks;
+do not expose it directly to HTTP. Use the result only to prepare the existing
+role update: the original Work still rechecks its exact native selection and
+all organization, member, user and source fences before committing.
 
 To write eligibility, add the field from `NewDirectoryTeamRoleUpdate` to the
 existing Group child's command alongside the membership grant field. Use

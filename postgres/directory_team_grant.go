@@ -35,6 +35,22 @@ func (s DirectoryTeamGrantScope) validate() bool {
 		scope(string(s.ConnectionID)) && scope(string(s.GroupID)) && scope(string(s.TeamID)) && scope(string(s.UserID))
 }
 
+// RecordID identifies the complete case-sensitive source scope without IO or a
+// current grant. It preserves the existing v1 update identity for original-command
+// recovery after withdrawal. This opaque correlation is not authority or a receipt.
+// Invalid scopes return an empty identity and ErrInvalidInput.
+func (s DirectoryTeamGrantScope) RecordID() (string, error) {
+	if !s.validate() {
+		return "", organization.ErrInvalidInput
+	}
+	source, err := json.Marshal(s)
+	if err != nil {
+		return "", organization.ErrInvalidInput
+	}
+	record := sha256.Sum256(append([]byte("organization.directory-team-source.v1\x00"), source...))
+	return hex.EncodeToString(record[:]), nil
+}
+
 // DirectoryTeamGrantInput freezes a membership-only add or withdrawal. All
 // observed target versions must still match at application. ExpectedVersion is
 // the independent source-row epoch, with zero meaning an absent row. Distinct
@@ -70,17 +86,16 @@ func NewDirectoryTeamGrantUpdate(input DirectoryTeamGrantInput) (DirectoryTeamGr
 		input.TeamVersion == 0 || input.ExpectedVersion == math.MaxUint64 {
 		return DirectoryTeamGrantUpdate{}, organization.ErrInvalidInput
 	}
-	source, err := json.Marshal(input.Scope)
+	recordID, err := input.Scope.RecordID()
 	if err != nil {
-		return DirectoryTeamGrantUpdate{}, organization.ErrInvalidInput
+		return DirectoryTeamGrantUpdate{}, err
 	}
-	record := sha256.Sum256(append([]byte("organization.directory-team-source.v1\x00"), source...))
 	wire, err := json.Marshal(input)
 	if err != nil {
 		return DirectoryTeamGrantUpdate{}, organization.ErrInvalidInput
 	}
 	digest := sha256.Sum256(append([]byte("organization.directory-team-update.v1\x00"), wire...))
-	return DirectoryTeamGrantUpdate{&directoryTeamGrantState{input: input, recordID: hex.EncodeToString(record[:]), digest: digest}}, nil
+	return DirectoryTeamGrantUpdate{&directoryTeamGrantState{input: input, recordID: recordID, digest: digest}}, nil
 }
 
 // RecordID identifies the complete source scope, independent of action and

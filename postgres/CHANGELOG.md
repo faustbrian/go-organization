@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Expose exact directory team scope record identity without constructing an
+  update, preserving existing v1 source hashes. Add a bounded primary read of
+  an active native team custom-role binding for an existing nondeleted team.
+  Neither API grants caller or source authority; original-Work fences remain.
+
 - Add a pure directory team-role update comparison for the caller's exact
   source and original grant or withdrawal direction. Zero updates never match;
   current source authority and command digests remain unchanged.
