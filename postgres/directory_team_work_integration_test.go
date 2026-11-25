@@ -28,6 +28,7 @@ type directoryTeamWorkOwner struct {
 	roleLock                                  organizationpg.DirectoryTeamRoleLock
 	roleSource                                organizationpg.DirectoryTeamRoleSource
 	roleOrganization                          organization.CredentialAuthorityObservation
+	recordRoleSuccessor                       bool
 	reconstruct, corruptAfterApply, denyFinal bool
 	applyCalls, finalCalls                    int
 }
@@ -67,6 +68,11 @@ func (p *directoryTeamWorkOwner) ApplyFeature(ctx context.Context, w kernel.Work
 		}
 		if err := p.repository.ApplyDirectoryTeamRoleUpdate(ctx, w, p, c, *p.role, p.roleLock); err != nil {
 			return identity.FeatureReceipt{}, err
+		}
+		if p.recordRoleSuccessor {
+			if err := p.repository.RecordDirectoryTeamRoleSuccessor(ctx, w, p, c, *p.role, p.roleLock); err != nil {
+				return identity.FeatureReceipt{}, err
+			}
 		}
 	}
 	if p.corruptAfterApply {

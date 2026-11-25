@@ -394,6 +394,17 @@ owner observed by the new invocation. SSO still owns prefix selection, child
 ordering and checkpoint custody, including interleaved Group effects. This
 method neither returns nor renews authority; the next Work still fences it.
 
+To continue after an effective directory role change, also install
+`DirectoryTeamRoleSuccessorMigrationSource` before enabling the mixed writer.
+It expands the existing command-effect check under a bounded lock and does
+not backfill legacy roles. Record the role effect with
+`RecordDirectoryTeamRoleSuccessor` while the original Work is live. After
+independent receipt authentication, recover only the original version change
+with `RecoverDirectoryTeamRoleSuccessor`. For restart, pass all retained User
+and role transitions to `ValidateDirectorySourceSuccessorChain` in the
+original order; never use the returned comparison to renew source authority.
+Ordinary Group, legacy role, and User-only profiles remain unchanged.
+
 An admitted first source creates an ordinary Member. An additional source
 may contribute to that exact directory-created member version. A local,
 previously removed, or locally changed membership cannot be claimed as a

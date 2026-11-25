@@ -87,12 +87,17 @@ func (r *Repository) RecoverDirectoryMembershipSuccessor(ctx context.Context, so
 	default:
 		return zero, organization.ErrForbidden
 	}
+	return r.recoverDirectorySuccessor(ctx, q, original, receipt, directoryMembershipSuccessorBinding(b))
+}
+
+func (r *Repository) recoverDirectorySuccessor(ctx context.Context, q organization.CredentialAuthorityQuery, original organization.CredentialAuthorityObservation, receipt identity.CommandResult, digest [32]byte) (organization.CredentialAuthorityObservation, error) {
+	var zero organization.CredentialAuthorityObservation
 	ctx, cancel := context.WithTimeout(ctx, min(r.maximum, time.Until(original.ValidUntil)))
 	defer cancel()
-	digest := directoryMembershipSuccessorBinding(b)
+	b := receipt.Binding
 	var after string
-	err = r.pool.Raw().QueryRow(ctx, recoverDirectoryMembershipSuccessorSQL,
-		string(b.CommandID), string(b.TenantID), string(source.OrganizationID), string(b.UserID), string(b.ActorID), b.OperationID, digest[:],
+	err := r.pool.Raw().QueryRow(ctx, recoverDirectoryMembershipSuccessorSQL,
+		string(b.CommandID), string(b.TenantID), string(q.OrganizationID), string(b.UserID), string(b.ActorID), b.OperationID, digest[:],
 		strconv.FormatUint(receipt.Feature.BeforeVersion, 10), strconv.FormatUint(receipt.Feature.AfterVersion, 10),
 		strconv.FormatUint(original.Version, 10), strconv.FormatUint(original.CredentialVersion, 10)).Scan(&after)
 	if original.Validate(q, time.Now().UTC()) != nil {

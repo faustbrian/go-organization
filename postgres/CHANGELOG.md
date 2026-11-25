@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Record the exact organization transition of a directory team role inside
+  its original Work. Verify mixed User and role prefixes before new effects.
+
 - Verify the ordered retained organization transitions of an original
   directory User prefix against current owner authority after a restart.
   Missing or noncontiguous effects cannot authorize continuation.
