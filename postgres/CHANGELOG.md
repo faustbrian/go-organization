@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Offer an opt-in durable directory User organization successor in the
+  original Work. Recover its exact version from committed effect evidence
+  without extending the original owner observation's validity.
+
 - Expose exact directory team scope record identity without constructing an
   update, preserving existing v1 source hashes. Add a bounded primary read of
   an active native team custom-role binding for an existing nondeleted team.

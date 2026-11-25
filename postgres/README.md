@@ -370,6 +370,22 @@ The ID is neither authority nor proof of a committed command; the caller still
 owns recovery authorization and original-receipt verification. Its existing
 case-sensitive digest format is unchanged, with no new schema or journal.
 
+For a batch that carries organization authority between User children, install
+`DirectoryMembershipSuccessorMigrationSource` before opting into
+`RecordDirectoryMembershipSuccessor`. Call it inside the original Work after
+Apply, propagate its error, and retain the ordinary final checks. The migration
+adds nullable metadata to existing command effects under a bounded lock; old
+writers remain compatible, and historical rows are not backfilled. Disabling
+the opt-in leaves committed evidence intact.
+
+After authorized kernel receipt recovery, `RecoverDirectoryMembershipSuccessor`
+matches the original command binding and contribution transition, then copies
+only the recorded organization version to the supplied owner observation. A
+contribution-only change preserves the same version, and all original times
+and the credential version stay unchanged. A superseded or inactive owner
+cannot supply a successor; the caller still fences that version inside the
+next Work. This is domain-effect evidence, not a receipt or audit query.
+
 An admitted first source creates an ordinary Member. An additional source
 may contribute to that exact directory-created member version. A local,
 previously removed, or locally changed membership cannot be claimed as a

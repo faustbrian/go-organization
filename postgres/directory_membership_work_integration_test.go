@@ -22,15 +22,16 @@ import (
 )
 
 type directoryMembershipWorkOwner struct {
-	repository *organizationpg.Repository
-	update     organizationpg.DirectoryMembershipUpdate
-	effect     organizationpg.DirectoryMembershipEffect
-	command    identity.Command
-	input      organizationpg.DirectoryMembershipInput
-	withdraw   bool
-	denyFinal  bool
-	foreignOrg organization.ID
-	applyCalls int
+	repository      *organizationpg.Repository
+	update          organizationpg.DirectoryMembershipUpdate
+	effect          organizationpg.DirectoryMembershipEffect
+	command         identity.Command
+	input           organizationpg.DirectoryMembershipInput
+	withdraw        bool
+	denyFinal       bool
+	foreignOrg      organization.ID
+	applyCalls      int
+	recordSuccessor bool
 }
 
 func (p *directoryMembershipWorkOwner) Descriptor() kernel.ContributorDescriptor {
@@ -64,6 +65,11 @@ func (p *directoryMembershipWorkOwner) ApplyFeature(ctx context.Context, w kerne
 		return identity.FeatureReceipt{}, err
 	}
 	p.effect = effect
+	if p.recordSuccessor {
+		if err := p.repository.RecordDirectoryMembershipSuccessor(ctx, w, p, c, p.effect); err != nil {
+			return identity.FeatureReceipt{}, err
+		}
+	}
 	return identity.FeatureReceipt{Operation: p.FeatureOperations()[0], BeforeVersion: p.update.BeforeVersion(), AfterVersion: p.update.AfterVersion()}, nil
 }
 
