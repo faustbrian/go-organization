@@ -282,6 +282,9 @@ FROM generate_series(1::bigint,20000::bigint) n`, string(metadataOrganization));
 	if err != nil || successor != want {
 		t.Fatal("recovery did not return exact committed organization successor", err)
 	}
+	if err := store.ValidateDirectoryMembershipSuccessorChain(f.ctx, successor, []organizationpg.DirectoryMembershipCommittedChild{{Source: source, Receipt: receipt}}); err != nil {
+		t.Fatal("native prefix lookup did not verify its original User effect", err)
+	}
 	trace.mu.Lock()
 	trace.disabled = true
 	writes, reads := trace.writes, trace.reads
@@ -290,8 +293,8 @@ FROM generate_series(1::bigint,20000::bigint) n`, string(metadataOrganization));
 	if traceError != nil {
 		t.Fatal(traceError)
 	}
-	if len(writes) != 1 || len(reads) != 1 || reads[0].err != nil || reads[0].elapsed <= 0 {
-		t.Fatal("successor adds one original effect write and one recovery read", len(writes), len(reads))
+	if len(writes) != 1 || len(reads) != 2 || reads[0].err != nil || reads[0].elapsed <= 0 || reads[1].err != nil || reads[1].elapsed <= 0 {
+		t.Fatal("expected one effect write and one read each for successor and prefix", len(writes), len(reads))
 	}
 	if len(writes[0].args) != 12 || len(reads[0].args) != 11 {
 		t.Fatal("unexpected production binding shape", len(writes[0].args), len(reads[0].args))
@@ -381,4 +384,91 @@ FROM generate_series(1::bigint,20000::bigint) n`, string(metadataOrganization));
 		t.Fatal("rollback-only insert measurement retained effects", afterCount, count, err)
 	}
 	t.Logf("rollback-only insert EXPLAIN client samples=%v; distinct command IDs; all effects rolled back; server execution and buffers appear in plans", insertSamples)
+	measureDirectoryMembershipPrefixRead(t, f.ctx, pool, reads[1])
+}
+
+func measureDirectoryMembershipPrefixRead(t *testing.T, ctx context.Context, pool *database.Pool, query *directorySuccessorQuery) {
+	t.Helper()
+	if len(query.args) != 5 {
+		t.Fatal("unexpected native prefix query bindings")
+	}
+	original, ok := query.args[0].([]string)
+	if !ok || len(original) != 1 {
+		t.Fatal("native prefix command keys are not bound as text array")
+	}
+	for _, arg := range query.args[1:] {
+		if _, ok := arg.(string); !ok {
+			t.Fatal("unexpected native prefix scope or version binding")
+		}
+	}
+	conn, err := pool.Raw().Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statement, err := conn.Conn().Prepare(ctx, "directory_successor_prefix_measurement", query.sql)
+	conn.Release()
+	if err != nil || len(statement.ParamOIDs) != 5 || statement.ParamOIDs[0] != 1009 || statement.ParamOIDs[3] != 1700 || statement.ParamOIDs[4] != 1700 {
+		t.Fatal("native prefix query did not retain text-array and numeric bindings", err)
+	}
+	t.Logf("native prefix SQL:\n%s\nparameter OIDs=%v; native one-child round-trip=%s", query.sql, statement.ParamOIDs, query.elapsed)
+	// This corpus models dense history for the query; the restart test uses
+	// actual Work effects for receipt and transition validation.
+	rows, err := pool.Raw().Query(ctx, `UPDATE organization.command_effects
+ SET operation='identity.sso.directory-sync.apply-user-admission',directory_org_before=$4::numeric,directory_org_after=$4::numeric,directory_credential_version=$3::numeric
+ WHERE command_id IN (SELECT command_id FROM organization.command_effects WHERE operation='measurement.history' AND tenant_id=$1 AND organization_id=$2 ORDER BY command_id LIMIT 999)
+ RETURNING command_id`, query.args[1:]...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	dense := append([]string(nil), original...)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		dense = append(dense, id)
+	}
+	if err := rows.Err(); err != nil || len(dense) != 1000 {
+		t.Fatal("maximum-sized retained history fixture missing", len(dense), err)
+	}
+	if _, err := pool.Raw().Exec(ctx, `ANALYZE organization.command_effects`); err != nil {
+		t.Fatal(err)
+	}
+	for _, sample := range []struct {
+		name string
+		keys []string
+		want int
+	}{
+		{"matched one", original, 1}, {"matched maximum", dense, 1000}, {"missing key", []string{string(commandID(t))}, 0},
+	} {
+		args := append([]any{sample.keys}, query.args[1:]...)
+		rows, err := pool.Raw().Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) "+query.sql, args...)
+		plan := directorySuccessorPlan(t, rows, err)
+		for line := range strings.SplitSeq(plan, "\n") {
+			if !strings.Contains(line, "Index Cond:") && !strings.Contains(line, "Filter:") {
+				t.Log(line)
+			}
+		}
+		if !strings.Contains(plan, "command_effects_pkey") || strings.Contains(plan, "Seq Scan on command_effects") {
+			t.Fatal("prefix read did not retain bounded primary-key access", sample.name)
+		}
+		var times [3]time.Duration
+		for i := range times {
+			started := time.Now()
+			rows, err = pool.Raw().Query(ctx, query.sql, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found int
+			for rows.Next() {
+				found++
+			}
+			times[i] = time.Since(started)
+			if err := rows.Err(); err != nil || found != sample.want {
+				t.Fatal("prefix query row count changed", sample.name, found, err)
+			}
+		}
+		t.Logf("%s: prefix rows=%d; warm client samples=%v; existing primary-key plan", sample.name, sample.want, times)
+	}
 }

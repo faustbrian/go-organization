@@ -386,6 +386,14 @@ and the credential version stay unchanged. A superseded or inactive owner
 cannot supply a successor; the caller still fences that version inside the
 next Work. This is domain-effect evidence, not a receipt or audit query.
 
+For a restarted mixed directory batch, `ValidateDirectoryMembershipSuccessorChain`
+checks the independently authorized User receipts from the exact original
+committed prefix. It looks up their retained effects in one bounded read and
+requires a contiguous organization version chain ending at the current active
+owner observed by the new invocation. SSO still owns prefix selection, child
+ordering and checkpoint custody, including interleaved Group effects. This
+method neither returns nor renews authority; the next Work still fences it.
+
 An admitted first source creates an ordinary Member. An additional source
 may contribute to that exact directory-created member version. A local,
 previously removed, or locally changed membership cannot be claimed as a

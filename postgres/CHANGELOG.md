@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Verify the ordered retained organization transitions of an original
+  directory User prefix against current owner authority after a restart.
+  Missing or noncontiguous effects cannot authorize continuation.
+
 - Offer an opt-in durable directory User organization successor in the
   original Work. Recover its exact version from committed effect evidence
   without extending the original owner observation's validity.
