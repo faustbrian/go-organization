@@ -319,12 +319,10 @@ func (p *Contributor) mutateMember(ctx context.Context, w kernel.Work, c nativeC
 	if c.operation == organization.AddMember {
 		return persistAddedMember(ctx, w, b.TenantID, c.org.ID, b.UserID, c.role, target.Version, next.Version)
 	}
-	var n int64
-	if c.operation == organization.UpdateMember {
-		n, e = w.Exec(ctx, `UPDATE organization.memberships SET role=$4,version=version+1,authorization_version=$5::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$6::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
-	} else {
-		n, e = w.Exec(ctx, `UPDATE organization.memberships SET state='removed',version=version+1,authorization_version=$4::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$5::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
+	if c.operation != organization.UpdateMember {
+		return persistRemovedMember(ctx, w, b.TenantID, c.org.ID, b.UserID, target.Version, next.Version)
 	}
+	n, e := w.Exec(ctx, `UPDATE organization.memberships SET role=$4,version=version+1,authorization_version=$5::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$6::numeric AND state='active'`, string(b.TenantID), string(c.org.ID), string(b.UserID), string(c.role), strconv.FormatUint(next.Version, 10), strconv.FormatUint(target.Version, 10))
 	if e != nil {
 		return e
 	}
@@ -376,6 +374,19 @@ func advanceMembershipOrganization(ctx context.Context, w kernel.Work, tenant id
 // positive, so this existing upsert cannot re-admit a tombstone in that case.
 func persistAddedMember(ctx context.Context, w kernel.Work, tenant identity.TenantID, org organization.ID, user identity.UserID, role organization.Role, predecessor, authorizationVersion uint64) error {
 	n, err := w.Exec(ctx, `INSERT INTO organization.memberships(tenant_id,organization_id,user_id,role,state,version,authorization_version) VALUES($1,$2,$3,$4,'active',$5::numeric,$6::numeric) ON CONFLICT(tenant_id,organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,state='active',version=EXCLUDED.version,authorization_version=EXCLUDED.authorization_version WHERE organization.memberships.state='removed' AND organization.memberships.version=$7::numeric`, string(tenant), string(org), string(user), string(role), strconv.FormatUint(predecessor+1, 10), strconv.FormatUint(authorizationVersion, 10), strconv.FormatUint(predecessor, 10))
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return identity.ConflictError{}
+	}
+	return nil
+}
+
+const persistRemovedMemberSQL = `UPDATE organization.memberships SET state='removed',version=version+1,authorization_version=$4::numeric WHERE tenant_id=$1 AND organization_id=$2 AND user_id=$3 AND version=$5::numeric AND state='active'`
+
+func persistRemovedMember(ctx context.Context, w kernel.Work, tenant identity.TenantID, org organization.ID, user identity.UserID, predecessor, authorizationVersion uint64) error {
+	n, err := w.Exec(ctx, persistRemovedMemberSQL, string(tenant), string(org), string(user), strconv.FormatUint(authorizationVersion, 10), strconv.FormatUint(predecessor, 10))
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Grant and withdraw ordinary organization membership from exact directory
+  User contributions. The last source removal advances organization and
+  member authority without changing the global identity. Unattributed and
+  other-source access is preserved.
+
 - Add opt-in team membership contributions attributed to an exact directory
   source. Apply and verify each change inside its original SSO child command.
   Withdrawals retain provenance and leave local memberships and roles intact.

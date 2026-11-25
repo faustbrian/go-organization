@@ -296,6 +296,34 @@ that source's epoch; exact retries use the original command receipt. Withdrawal
 does not affect another source or any local membership. Directory grants do
 not enter default team reads or role permission calculations.
 
+## Directory-owned organization membership
+
+Install `DirectoryMembershipMigrationSource` after the native membership and
+credential-authority histories, before opting a caller into directory User
+reconciliation. No existing row is backfilled or assigned a source. Existing
+callers work with either schema; turning off the writer preserves history and
+does not silently revoke active memberships.
+
+`ObserveDirectoryMembership` reads the current canonical member and exact
+source version. Prepare and bind `NewDirectoryMembershipUpdate` to the
+original SSO child using `RecordID`, `Field` and the contribution versions.
+Within Apply, acquire the original source's directory status fence, call
+`LockDirectoryMembershipUpdate`, then fence the exact connection and User
+before passing the returned lock to `ApplyDirectoryMembershipUpdate`. In
+the final phase call `RequireDirectoryMembershipEffect`; the source owner
+uses `RequireDirectoryMembershipSourceOwner` to validate the same Work's
+exact organization successor without changing the original owner deadline.
+Propagate any error; recover only through the original command's receipt.
+
+An admitted first source creates an ordinary Member. An additional source
+may contribute to that exact directory-created member version. A local,
+previously removed, or locally changed membership cannot be claimed as a
+directory grant. Removing one source preserves other live sources at that
+version. Removing the last advances scoped authorization and removes the
+canonical membership; it does not suspend, unblock, or delete the identity.
+Source and recovery policy are still owned by the caller. These Work methods
+are not standalone SCIM operations or public HTTP handlers.
+
 ## Advisory slug availability
 
 `Service.SlugAvailable(ctx, organization.SlugAvailableRequest)` authenticates the
