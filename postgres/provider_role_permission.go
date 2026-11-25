@@ -24,13 +24,18 @@ func NewRepositoryWithProviderRoleGrants(pool *database.Pool, config Config) (*R
 	return repository, nil
 }
 
-func (r *Repository) queryProviderRolePermissions(ctx context.Context, q organization.Query, v organization.View) (pgx.Rows, error) {
+func (r *Repository) queryProviderRolePermissions(ctx context.Context, q organization.Query, v organization.View, directoryRoles []string) (pgx.Rows, error) {
 	query := effectiveProviderRolesSQL
+	args := []any{string(q.TenantID), string(q.OrganizationID), q.RoleCursor, int32(q.Limit + 1), string(q.ActorID),
+		strconv.FormatUint(v.Organization.Version, 10), strconv.FormatUint(v.Actor.Version, 10), strconv.FormatUint(v.Actor.AuthorizationVersion, 10)}
 	if q.IncludeTeamRoles {
 		query = effectiveProviderTeamRolesSQL
+		if len(directoryRoles) != 0 {
+			query = effectiveProviderDirectoryTeamRolesSQL
+			args = append(args, directoryRoles)
+		}
 	}
-	return r.pool.Raw().Query(ctx, query, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, int32(q.Limit+1), string(q.ActorID),
-		strconv.FormatUint(v.Organization.Version, 10), strconv.FormatUint(v.Actor.Version, 10), strconv.FormatUint(v.Actor.AuthorizationVersion, 10))
+	return r.pool.Raw().Query(ctx, query, args...)
 }
 
 // Take the first 129 exact member keys before applying any source status
@@ -64,3 +69,4 @@ const providerRoleProjectionOrder = ` ORDER BY r.role_id COLLATE "C" LIMIT $4`
 
 const effectiveProviderRolesSQL = providerRoleProjectionSQL + `)` + providerRoleProjectionOrder
 const effectiveProviderTeamRolesSQL = providerRoleProjectionSQL + ` OR ` + effectiveTeamRoleExists + `)` + providerRoleProjectionOrder
+const effectiveProviderDirectoryTeamRolesSQL = providerRoleProjectionSQL + ` OR ` + effectiveTeamRoleExists + ` OR r.role_id=ANY($9::text[]))` + providerRoleProjectionOrder

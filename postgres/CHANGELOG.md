@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Opt into exact directory Group eligibility for an existing team-role
+  binding. Persist it with the original Group command and recheck current
+  source authority before evaluating permission. Legacy and local team
+  memberships do not change.
+
 - Expose exact directory-membership source record identity without a current
   contribution, allowing original-command recovery after last-source withdrawal.
   Updates retain their existing case-sensitive digest format. The identity is

@@ -296,6 +296,35 @@ that source's epoch; exact retries use the original command receipt. Withdrawal
 does not affect another source or any local membership. Directory grants do
 not enter default team reads or role permission calculations.
 
+### Explicit directory team roles
+
+Directory team membership alone is not role eligibility. Install
+`DirectoryTeamRoleMigrationSource` after the directory team grants and
+native team role binding histories before enabling this profile. The new
+table starts empty; there is no backfill or implicit promotion. Leave it
+installed on a code rollback.
+
+To write eligibility, add the field from `NewDirectoryTeamRoleUpdate` to the
+existing Group child's command alongside the membership grant field. The
+orchestrator must observe authoritative directory status before taking the
+organization writer lock with `LockDirectoryTeamRoleUpdate`. It then fences
+the exact source connection and Group edge before applying the update in the
+same Work. Keep the original lock and command for
+`RequireDirectoryTeamRoleUpdate`; this rechecks the organization successor
+without refreshing source evidence. The SSO owner retains its original
+receipt, cursor, audit and outbox. A write does not assign a role or add local
+team membership. Withdrawal removes only that source's eligibility.
+
+`WithDirectoryTeamRoles` selects the read profile without changing other
+repository options. The callback must use current primary authority to check
+each configured Group and member resource, mapping, provider and connection.
+Return an error when authority is unavailable, rather than filtering it out
+as false: an unknown role could carry a deny. Positive results must come
+from reads within this call. A recreated binding, historical membership
+grant without role eligibility, or mismatched source version cannot grant
+permission. The ordinary organization permission service applies the same
+role limits, deny precedence and final organization epoch checks.
+
 ## Directory-owned organization membership
 
 Install `DirectoryMembershipMigrationSource` after the native membership and

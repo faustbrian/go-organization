@@ -171,12 +171,15 @@ func (p *Contributor) mutateTeamRoleBinding(ctx context.Context, w kernel.Work, 
 // Select each role once, regardless of direct plus multiple-team paths. The
 // existing engine therefore sees the complete allow/deny set without duplicate
 // role identities, and exact live membership epochs deny removal/readmission.
-const effectiveTeamRolesSQL = `SELECT r.role_id,r.name,r.version::text,r.statements FROM organization.custom_roles r
+const effectiveTeamRoleProjectionSQL = `SELECT r.role_id,r.name,r.version::text,r.statements FROM organization.custom_roles r
  WHERE r.tenant_id=$1 AND r.organization_id=$2 AND r.state='active' AND r.role_id>$3 COLLATE "C" AND
  ($4 OR EXISTS(SELECT 1 FROM organization.role_bindings b JOIN organization.memberships m USING(tenant_id,organization_id,user_id)
  WHERE b.tenant_id=r.tenant_id AND b.organization_id=r.organization_id AND b.role_id=r.role_id AND b.user_id=$5 AND b.state='active' AND m.state='active' AND b.organization_member_version=m.version)
- OR ` + effectiveTeamRoleExists + `)
- ORDER BY r.role_id COLLATE "C" LIMIT $6`
+ OR ` + effectiveTeamRoleExists
+
+const effectiveTeamRoleOrderSQL = `) ORDER BY r.role_id COLLATE "C" LIMIT $6`
+const effectiveTeamRolesSQL = effectiveTeamRoleProjectionSQL + effectiveTeamRoleOrderSQL
+const effectiveDirectoryTeamRolesSQL = effectiveTeamRoleProjectionSQL + ` OR r.role_id=ANY($7::text[])` + effectiveTeamRoleOrderSQL
 
 const effectiveTeamRoleExists = `EXISTS(SELECT 1 FROM organization.team_role_bindings b JOIN organization.teams t USING(tenant_id,organization_id,team_id)
  JOIN organization.team_identities ti USING(tenant_id,organization_id,team_id)

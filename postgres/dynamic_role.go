@@ -137,14 +137,26 @@ func (r *Repository) readDynamicRoles(ctx context.Context, q organization.Query,
 			return organization.View{}, organization.ErrInvalidInput
 		}
 		query := `SELECT r.role_id,r.name,r.version::text,r.statements FROM organization.custom_roles r WHERE r.tenant_id=$1 AND r.organization_id=$2 AND r.state='active' AND r.role_id>$3 COLLATE "C" AND ($4 OR EXISTS(SELECT 1 FROM organization.role_bindings b JOIN organization.memberships m USING(tenant_id,organization_id,user_id) WHERE b.tenant_id=r.tenant_id AND b.organization_id=r.organization_id AND b.role_id=r.role_id AND b.user_id=$5 AND b.state='active' AND m.state='active' AND b.organization_member_version=m.version)) ORDER BY r.role_id COLLATE "C" LIMIT $6`
+		var directoryRoles []string
 		if q.IncludeTeamRoles {
 			query = effectiveTeamRolesSQL
+			if r.directoryTeamRoles != nil {
+				directoryRoles, e = r.currentDirectoryTeamRoles(ctx, q, v)
+				if e != nil {
+					return organization.View{}, e
+				}
+			}
 		}
 		var rows pgx.Rows
 		if r.providerRoleGrants && q.Operation == organization.CheckPermission {
-			rows, e = r.queryProviderRolePermissions(ctx, q, v)
+			rows, e = r.queryProviderRolePermissions(ctx, q, v, directoryRoles)
 		} else {
-			rows, e = r.pool.Raw().Query(ctx, query, string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit+1))
+			args := []any{string(q.TenantID), string(q.OrganizationID), q.RoleCursor, q.Operation == organization.ListDynamicRoles, string(q.ActorID), int32(q.Limit + 1)}
+			if len(directoryRoles) != 0 {
+				query = effectiveDirectoryTeamRolesSQL
+				args = append(args, directoryRoles)
+			}
+			rows, e = r.pool.Raw().Query(ctx, query, args...)
 		}
 		if e != nil {
 			return organization.View{}, storageError(ctx, e)

@@ -228,6 +228,11 @@ func (r *Repository) RequireDirectoryTeamGrantUpdate(ctx context.Context, w kern
 	if err := r.requireDirectoryTeamGrantTarget(ctx, w, owner, i); err != nil {
 		return err
 	}
+	return requireDirectoryTeamGrantRow(ctx, w, update)
+}
+
+func requireDirectoryTeamGrantRow(ctx context.Context, w kernel.Work, update DirectoryTeamGrantUpdate) error {
+	i := update.state.input
 	s := i.Scope
 	rows, err := w.Query(ctx, `SELECT version::text,organization_member_version::text,active FROM organization.directory_team_grants
 WHERE tenant_id=$1 AND organization_id=$2 AND provider_id=$3 AND connection_id=$4 AND group_id=$5 AND team_id=$6 AND user_id=$7 FOR SHARE`, string(s.TenantID), string(s.OrganizationID), string(s.ProviderID), string(s.ConnectionID), string(s.GroupID), string(s.TeamID), string(s.UserID))

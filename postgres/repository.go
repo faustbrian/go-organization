@@ -30,6 +30,7 @@ type Repository struct {
 	directory          *kernel.Repository
 	maximum            time.Duration
 	providerRoleGrants bool
+	directoryTeamRoles DirectoryTeamRoleAuthority
 }
 
 var _ organization.Repository = (*Repository)(nil)
