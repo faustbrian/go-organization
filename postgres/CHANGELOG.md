@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a pure directory team-role update comparison for the caller's exact
+  source and original grant or withdrawal direction. Zero updates never match;
+  current source authority and command digests remain unchanged.
+
 - Opt into exact directory Group eligibility for an existing team-role
   binding. Persist it with the original Group command and recheck current
   source authority before evaluating permission. Legacy and local team

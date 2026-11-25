@@ -305,7 +305,10 @@ table starts empty; there is no backfill or implicit promotion. Leave it
 installed on a code rollback.
 
 To write eligibility, add the field from `NewDirectoryTeamRoleUpdate` to the
-existing Group child's command alongside the membership grant field. The
+existing Group child's command alongside the membership grant field. Use
+`MatchesSource` to compare the frozen update with the caller's complete
+`DirectoryTeamRoleSource` and grant or withdrawal direction. This comparison
+grants no authority and does not replace current source fences. The
 orchestrator must observe authoritative directory status before taking the
 organization writer lock with `LockDirectoryTeamRoleUpdate`. It then fences
 the exact source connection and Group edge before applying the update in the

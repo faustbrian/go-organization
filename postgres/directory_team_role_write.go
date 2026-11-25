@@ -50,6 +50,16 @@ func NewDirectoryTeamRoleUpdate(grant DirectoryTeamGrantUpdate, source Directory
 	return DirectoryTeamRoleUpdate{&directoryTeamRoleUpdateState{grant: grant, source: source, bindingVersion: bindingVersion, digest: digest}}, nil
 }
 
+// MatchesSource compares the complete frozen source and original grant direction
+// with the caller's edge. Zero updates return false. This pure comparison grants
+// no authority and does not replace current source fences.
+func (u DirectoryTeamRoleUpdate) MatchesSource(source DirectoryTeamRoleSource, active bool) bool {
+	if u.state == nil {
+		return false
+	}
+	return u.state.source == source && u.state.grant.state.input.Active == active
+}
+
 // Field returns detached digest bytes for the original Group command. It
 // discloses no source identifiers and supplies no application authority.
 func (u DirectoryTeamRoleUpdate) Field() (identity.FeatureField, error) {
