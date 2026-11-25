@@ -32,6 +32,24 @@ func (s DirectoryMembershipSource) validate() bool {
 		scope(string(s.ProviderID)) && scope(string(s.ConnectionID)) && scope(string(s.ResourceID))
 }
 
+// RecordID returns opaque child correlation for this exact, case-sensitive
+// source without IO or a current membership contribution. It is stable across
+// contribution versions and actions. Invalid selectors return
+// organization.ErrInvalidInput and no ID. This identity grants no authority and
+// is not an original receipt; callers must independently authorize recovery and
+// verify the original command.
+func (s DirectoryMembershipSource) RecordID() (string, error) {
+	if !s.validate() {
+		return "", organization.ErrInvalidInput
+	}
+	selectors, err := json.Marshal(s)
+	if err != nil {
+		return "", organization.ErrInvalidInput
+	}
+	record := directoryMembershipDigest("organization.directory-membership.source.v1", selectors)
+	return hex.EncodeToString(record[:]), nil
+}
+
 func (s DirectoryMembershipSource) organizationQuery() organization.CredentialAuthorityQuery {
 	return organization.CredentialAuthorityQuery{TenantID: s.TenantID, OrganizationID: s.OrganizationID}
 }
@@ -80,7 +98,8 @@ type directoryMembershipUpdateState struct {
 // into the original child. It does not authenticate the source or perform IO.
 func NewDirectoryMembershipUpdate(i DirectoryMembershipInput) (DirectoryMembershipUpdate, error) {
 	s := i.Source
-	if !s.validate() || !scope(string(i.ActorID)) {
+	recordID, err := s.RecordID()
+	if err != nil || !scope(string(i.ActorID)) {
 		return DirectoryMembershipUpdate{}, organization.ErrInvalidInput
 	}
 	if i.Organization.Validate(s.organizationQuery(), time.Now().UTC()) != nil ||
@@ -103,16 +122,11 @@ func NewDirectoryMembershipUpdate(i DirectoryMembershipInput) (DirectoryMembersh
 	default:
 		return DirectoryMembershipUpdate{}, organization.ErrInvalidInput
 	}
-	selectors, err := json.Marshal(s)
-	if err != nil {
-		return DirectoryMembershipUpdate{}, organization.ErrInvalidInput
-	}
-	record := directoryMembershipDigest("organization.directory-membership.source.v1", selectors)
 	wire, err := json.Marshal(i)
 	if err != nil {
 		return DirectoryMembershipUpdate{}, organization.ErrInvalidInput
 	}
-	state := &directoryMembershipUpdateState{input: i, recordID: hex.EncodeToString(record[:]), digest: directoryMembershipDigest("organization.directory-membership.update.v1", wire)}
+	state := &directoryMembershipUpdateState{input: i, recordID: recordID, digest: directoryMembershipDigest("organization.directory-membership.update.v1", wire)}
 	return DirectoryMembershipUpdate{state: state}, nil
 }
 

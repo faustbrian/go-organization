@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Expose exact directory-membership source record identity without a current
+  contribution, allowing original-command recovery after last-source withdrawal.
+  Updates retain their existing case-sensitive digest format. The identity is
+  not authority or an original receipt; no schema or journal is added.
+
 - Grant and withdraw ordinary organization membership from exact directory
   User contributions. The last source removal advances organization and
   member authority without changing the global identity. Unattributed and

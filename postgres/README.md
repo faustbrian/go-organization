@@ -315,6 +315,13 @@ uses `RequireDirectoryMembershipSourceOwner` to validate the same Work's
 exact organization successor without changing the original owner deadline.
 Propagate any error; recover only through the original command's receipt.
 
+`DirectoryMembershipSource.RecordID` derives the same exact-source child
+identity without a current contribution or a new update. Original-command
+recovery can therefore identify its child after the last-source withdrawal.
+The ID is neither authority nor proof of a committed command; the caller still
+owns recovery authorization and original-receipt verification. Its existing
+case-sensitive digest format is unchanged, with no new schema or journal.
+
 An admitted first source creates an ordinary Member. An additional source
 may contribute to that exact directory-created member version. A local,
 previously removed, or locally changed membership cannot be claimed as a
