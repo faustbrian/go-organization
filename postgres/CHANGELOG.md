@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Observe exact retained directory team-role attribution even when the recorded
+  role, source grant or binding is no longer current. The read grants no access.
+
 - Observe exact directory membership attribution and current owner versions
   without altering local or other-source membership.
 

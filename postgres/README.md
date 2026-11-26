@@ -320,6 +320,15 @@ do not expose it directly to HTTP. Use the result only to prepare the existing
 role update: the original Work still rechecks its exact native selection and
 all organization, member, user and source fences before committing.
 
+For reconciliation, `ObserveDirectoryTeamRoleAttribution` separately reports
+the current member, requested role and binding versions and the exact retained
+source row from one primary snapshot. A zero retained grant version means that
+source has no role row; a stale or differently mapped role stays visible. A
+current role may have no active binding. The read requires the same migration
+and a current organization, member, user and team. It neither proves external
+source authority nor changes access; an orchestrator must authorize the read and
+recheck the relevant source and generation before exposing a drift result.
+
 To write eligibility, add the field from `NewDirectoryTeamRoleUpdate` to the
 existing Group child's command alongside the membership grant field. Use
 `MatchesSource` to compare the frozen update with the caller's complete
