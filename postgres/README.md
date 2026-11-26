@@ -363,6 +363,12 @@ uses `RequireDirectoryMembershipSourceOwner` to validate the same Work's
 exact organization successor without changing the original owner deadline.
 Propagate any error; recover only through the original command's receipt.
 
+For read-only reconciliation, `ObserveDirectoryMembershipAttribution` also
+returns the current organization and credential versions. It distinguishes
+an active local member with no current source grant from an active member
+backed by a different directory source. It ignores other membership
+incarnations. The observation grants no authority and changes no records.
+
 `DirectoryMembershipSource.RecordID` derives the same exact-source child
 identity without a current contribution or a new update. Original-command
 recovery can therefore identify its child after the last-source withdrawal.

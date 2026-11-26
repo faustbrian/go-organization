@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Observe exact directory membership attribution and current owner versions
+  without altering local or other-source membership.
+
 - Record the exact organization transition of a directory team role inside
   its original Work. Verify mixed User and role prefixes before new effects.
 

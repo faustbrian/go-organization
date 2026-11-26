@@ -6,6 +6,7 @@ package postgres
 // external integration test package, following Go's export_test convention.
 func DirectoryMembershipPlanSQL() map[string]string {
 	return map[string]string{
+		"attribution":   observeDirectoryMembershipAttributionSQL,
 		"observe":       observeDirectoryMembershipSQL,
 		"owner":         lockDirectoryMembershipOwnerSQL,
 		"active":        hasDirectoryMembershipGrantSQL,
