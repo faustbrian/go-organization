@@ -31,6 +31,19 @@ WHERE o.tenant_id=$1 AND o.organization_id=$2 AND o.state='active'`
 // required. Keep this bounded primary-only read out of public HTTP. A different
 // resource already bound to the connection and member returns conflict.
 func (r *Repository) ObserveDirectoryMembership(ctx context.Context, s DirectoryMembershipSource) (DirectoryMembershipObservation, error) {
+	return r.observeDirectoryMembership(ctx, s, false)
+}
+
+// ObserveManagedSCIMDirectoryMembership reads the current member incarnation
+// and only this exact SCIM resource's contribution. Another resource at the
+// same connection is absent for this source, not ownership of that resource.
+// Zero does not establish historical absence. Preparation grants no authority:
+// the original managed delete Work must recheck these facts under owner locks.
+func (r *Repository) ObserveManagedSCIMDirectoryMembership(ctx context.Context, s DirectoryMembershipSource) (DirectoryMembershipObservation, error) {
+	return r.observeDirectoryMembership(ctx, s, true)
+}
+
+func (r *Repository) observeDirectoryMembership(ctx context.Context, s DirectoryMembershipSource, managedSCIM bool) (DirectoryMembershipObservation, error) {
 	if r == nil || r.pool == nil || ctx == nil || !s.validate() {
 		return DirectoryMembershipObservation{}, organization.ErrInvalidInput
 	}
@@ -43,7 +56,10 @@ func (r *Repository) ObserveDirectoryMembership(ctx context.Context, s Directory
 		return DirectoryMembershipObservation{}, storageError(ctx, err)
 	}
 	if resource != "" && resource != string(s.ResourceID) {
-		return DirectoryMembershipObservation{}, organization.ErrConflict
+		if !managedSCIM {
+			return DirectoryMembershipObservation{}, organization.ErrConflict
+		}
+		contributionVersion, contributionActive = "0", false
 	}
 	o := DirectoryMembershipObservation{ContributionActive: contributionActive}
 	if memberVersion != "0" {

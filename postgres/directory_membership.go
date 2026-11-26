@@ -89,9 +89,10 @@ type DirectoryMembershipUpdate struct {
 }
 
 type directoryMembershipUpdateState struct {
-	input    DirectoryMembershipInput
-	recordID string
-	digest   [32]byte
+	input       DirectoryMembershipInput
+	recordID    string
+	digest      [32]byte
+	managedSCIM *managedSCIMMembershipWithdrawal
 }
 
 // NewDirectoryMembershipUpdate validates and freezes input before binding it
@@ -152,15 +153,20 @@ func (u DirectoryMembershipUpdate) BeforeVersion() uint64 {
 	return u.state.input.ExpectedVersion
 }
 
-// AfterVersion is the next contribution version, or zero for an invalid update.
+// AfterVersion is the resulting contribution version, or zero for an invalid
+// update. A managed SCIM withdrawal of an absent or retired source leaves it
+// unchanged; its SCIM projection lifecycle is independent of this version.
 func (u DirectoryMembershipUpdate) AfterVersion() uint64 {
 	if u.state == nil {
 		return 0
 	}
+	if u.state.managedSCIM != nil && !u.state.managedSCIM.contributionActive {
+		return u.state.input.ExpectedVersion
+	}
 	return u.state.input.ExpectedVersion + 1
 }
 
-// Field returns the detached digest to bind before the child is reserved.
+// Field returns the detached digest to bind before the original command is reserved.
 func (u DirectoryMembershipUpdate) Field() (identity.FeatureField, error) {
 	if u.state == nil {
 		return identity.FeatureField{}, organization.ErrInvalidInput
@@ -206,9 +212,15 @@ func requireDirectoryMembershipBinding(w kernel.Work, owner kernel.FeatureExecut
 	i := update.state.input
 	op := directoryMembershipOperation(i.Action)
 	descriptor := kernel.ContributorDescriptor{Owner: "sso/postgres", ContractID: op.SchemaID, Version: 1}
+	before, after := update.BeforeVersion(), update.AfterVersion()
+	if managed := update.state.managedSCIM; managed != nil {
+		op = managedSCIMMembershipOperation()
+		descriptor = kernel.ContributorDescriptor{Owner: "scim/postgres", ContractID: "identity.scim.managed", Version: 1}
+		before, after = managed.projectionVersion, managed.projectionVersion+1
+	}
 	if registration.Contributor != descriptor || registration.Operation != op ||
 		b.TenantID != i.Source.TenantID || b.UserID != i.Source.UserID || b.ActorKind != authorization.SubjectServiceAccount || b.ActorID != i.ActorID || b.RecordID != update.RecordID() ||
-		lifecycle.BeforeVersion != update.BeforeVersion() || lifecycle.AfterVersion != update.AfterVersion() {
+		lifecycle.BeforeVersion != before || lifecycle.AfterVersion != after {
 		return identity.ForbiddenError{}
 	}
 	spec, ok := command.Feature()

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Withdraw an exact current-incarnation membership source inside the original
+  managed SCIM UserDelete Work. Locked absent/retired no-ops preserve local,
+  replaced and other-source grants; the independent SCIM projection lifecycle
+  and original authority deadline remain bound. Existing SSO profiles, schema
+  and global identity status are unchanged.
+
 - Observe exact retained directory team-role attribution even when the recorded
   role, source grant or binding is no longer current. The read grants no access.
 

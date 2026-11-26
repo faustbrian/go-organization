@@ -372,6 +372,34 @@ uses `RequireDirectoryMembershipSourceOwner` to validate the same Work's
 exact organization successor without changing the original owner deadline.
 Propagate any error; recover only through the original command's receipt.
 
+Managed SCIM `UserDelete` with the explicit `RemoveMembership` policy uses
+`ObserveManagedSCIMDirectoryMembership` and
+`NewManagedSCIMMembershipWithdrawal(input, contributionActive, projectionVersion)`.
+This closed profile accepts only the `scim/postgres` contributor contract
+`identity.scim.managed` version 1 and `identity.scim.user-delete` operation with
+schema `identity.scim.user-delete.managed-v1`, version 1. Bind the returned
+`Field` into that original command, with its exact native UserID, service actor
+and SCIM ResourceID. The command lifecycle advances the original SCIM projection
+generation, not the independent membership contribution version.
+
+Use the same lock, apply, final-effect and source-owner methods above inside
+that single delete Work; no second SSO child, schema or successor journal is
+needed. Fence directory status first, then take the organization tenant and
+organization locks before connection/resource locks or organization SHARE.
+The source owner still checks connection, provisioning, mapping and original
+projection authority. Final `RequireDirectoryMembershipSourceOwner` admits only
+this Work's actual organization successor, preserving the original credential
+epoch and deadline. Do not substitute a guessed successor or renew admission.
+
+Exact current-incarnation absence and a retained inactive contribution produce
+nonzero provisional effects but no membership mutation. They are checked under
+the retained organization locks and again before commit, so a matching grant
+appearing after preparation denies stale input. Another resource, local member
+or replaced incarnation is not adopted or removed; this does not claim that an
+older source never existed. Only an active exact source is retired. Removing
+the last live source of the current ordinary directory-owned member advances
+that member's scoped authority, without changing global identity status.
+
 For read-only reconciliation, `ObserveDirectoryMembershipAttribution` also
 returns the current organization and credential versions. It distinguishes
 an active local member with no current source grant from an active member

@@ -50,7 +50,7 @@ func (DirectoryMembershipEffect) Format(s fmt.State, _ rune) {
 // LockDirectoryMembershipUpdate acquires the canonical tenant and organization
 // locks without changing membership. Call after the source's directory status
 // fence and before the source owner takes an organization SHARE or connection
-// lock. Run only inside the admitted SSO User child's original Apply. The
+// lock. Run only inside the admitted source User command's original Apply. The
 // source owner must still fence its original connection and User projection
 // before ApplyDirectoryMembershipUpdate is allowed to write.
 func (r *Repository) LockDirectoryMembershipUpdate(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, update DirectoryMembershipUpdate) (DirectoryMembershipLock, error) {
@@ -80,11 +80,11 @@ func (r *Repository) LockDirectoryMembershipUpdate(ctx context.Context, w kernel
 	return DirectoryMembershipLock{state: &directoryMembershipLockState{work: w, command: command, update: update.state, members: members}}, nil
 }
 
-// ApplyDirectoryMembershipUpdate borrows the exact SSO User child's Work and
+// ApplyDirectoryMembershipUpdate borrows the exact source User command's Work and
 // changes only its source. A new directory-only member receives the ordinary
 // Member role; local or replaced membership is never adopted as directory
 // authority. Withdrawing the last live source removes that membership and
-// advances its scoped authorization epoch. SSO must separately authorize and
+// advances its scoped authorization epoch. The source owner must authorize and
 // fence the provider, generation and source evidence, propagate errors, and
 // pass the returned effect to RequireDirectoryMembershipEffect before commit.
 func (r *Repository) ApplyDirectoryMembershipUpdate(ctx context.Context, w kernel.Work, owner kernel.FeatureExecutionContributor, command identity.Command, update DirectoryMembershipUpdate, locked DirectoryMembershipLock) (DirectoryMembershipEffect, error) {
@@ -117,6 +117,9 @@ func (r *Repository) ApplyDirectoryMembershipUpdate(ctx context.Context, w kerne
 		return DirectoryMembershipEffect{}, err
 	}
 	p := directoryMembershipEffectState{work: w, command: command, update: update.state, member: member, organizationVersion: i.Organization.Version, contributionMember: member.Version}
+	if update.state.managedSCIM != nil {
+		return r.applyManagedSCIMMembershipWithdrawal(ctx, w, scoped, &p)
+	}
 	if member.Version == 0 {
 		if err := r.addDirectoryMember(ctx, w, scoped, &p, locked.state.members); err != nil {
 			return DirectoryMembershipEffect{}, err
@@ -273,8 +276,29 @@ func (r *Repository) RequireDirectoryMembershipEffect(ctx context.Context, w ker
 	if err != nil {
 		return err
 	}
-	if err := authority.RequireAuthority(ctx, w, scoped, member.AuthorizationVersion, r.maximum); err != nil {
-		return authorityError(err)
+	if member.Version != 0 || update.state.managedSCIM == nil {
+		if err := authority.RequireAuthority(ctx, w, scoped, member.AuthorizationVersion, r.maximum); err != nil {
+			return authorityError(err)
+		}
+	}
+	if update.state.managedSCIM != nil {
+		if err := requireManagedSCIMMembershipGrant(ctx, w, update, p.contributionMember, update.AfterVersion(), false); err != nil {
+			return err
+		}
+		// Local/absent no-ops need not be directory-owned. When this Work did
+		// withdraw effective directory authority, retain the final-source fence
+		// on the original incarnation even if removal advanced its member row.
+		effectiveWithdrawal := update.state.managedSCIM.contributionActive && member.Role == organization.RoleMember && (member.Active || member.Version != i.MemberVersion)
+		if effectiveWithdrawal {
+			remaining, err := hasDirectoryMembershipGrant(ctx, w, s, p.contributionMember)
+			if err != nil {
+				return err
+			}
+			if member.Active != remaining {
+				return identity.ForbiddenError{}
+			}
+		}
+		return requireDirectoryMembershipDeadline(ctx, w, i)
 	}
 	if err := requireDirectoryMembershipGrant(ctx, w, update, p.contributionMember); err != nil {
 		return err
