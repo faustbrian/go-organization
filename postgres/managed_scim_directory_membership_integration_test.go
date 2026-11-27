@@ -22,6 +22,8 @@ import (
 
 type managedSCIMMembershipOwner struct {
 	repository        *organizationpg.Repository
+	descriptor        *kernel.ContributorDescriptor
+	operation         *identity.FeatureOperation
 	input             organizationpg.DirectoryMembershipInput
 	update            organizationpg.DirectoryMembershipUpdate
 	boundUpdate       *organizationpg.DirectoryMembershipUpdate
@@ -33,11 +35,17 @@ type managedSCIMMembershipOwner struct {
 	applyCalls        int
 }
 
-func (*managedSCIMMembershipOwner) Descriptor() kernel.ContributorDescriptor {
+func (p *managedSCIMMembershipOwner) Descriptor() kernel.ContributorDescriptor {
+	if p.descriptor != nil {
+		return *p.descriptor
+	}
 	return kernel.ContributorDescriptor{Owner: "scim/postgres", ContractID: "identity.scim.managed", Version: 1}
 }
 
-func (*managedSCIMMembershipOwner) FeatureOperations() []identity.FeatureOperation {
+func (p *managedSCIMMembershipOwner) FeatureOperations() []identity.FeatureOperation {
+	if p.operation != nil {
+		return []identity.FeatureOperation{*p.operation}
+	}
 	return []identity.FeatureOperation{{Owner: "scim", OperationID: "identity.scim.user-delete", SchemaID: "identity.scim.user-delete.managed-v1", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired, SubjectRequirement: identity.FeatureSubjectUser, VersionPolicy: identity.FeatureVersionSequential}}
 }
 
@@ -105,7 +113,11 @@ func managedSCIMMembershipWork(t *testing.T, f *orgFixture, p *managedSCIMMember
 		t.Fatal(err)
 	}
 	op := p.FeatureOperations()[0]
-	binding := identity.CommandBinding{CommandID: commandID(t), TenantID: p.input.Source.TenantID, UserID: p.input.Source.UserID, ActorID: p.input.ActorID, ActorKind: authorization.SubjectServiceAccount, OperationID: op.OperationID, PolicyID: "directory", PolicyVersion: 1, SchemaID: op.SchemaID, SchemaVersion: 1, CorrelationID: "managed-scim-delete", RecordID: string(p.input.Source.ResourceID)}
+	correlation, event := "managed-scim-delete", "scim.user_deleted.v1"
+	if op.OperationID == "identity.scim.user-patch" {
+		correlation, event = "managed-scim-deactivation", "identity.scim.user_patched.v1"
+	}
+	binding := identity.CommandBinding{CommandID: commandID(t), TenantID: p.input.Source.TenantID, UserID: p.input.Source.UserID, ActorID: p.input.ActorID, ActorKind: authorization.SubjectServiceAccount, OperationID: op.OperationID, PolicyID: "directory", PolicyVersion: 1, SchemaID: op.SchemaID, SchemaVersion: 1, CorrelationID: correlation, RecordID: string(p.input.Source.ResourceID)}
 	field, err := p.update.Field()
 	if p.boundUpdate != nil {
 		field, err = p.boundUpdate.Field()
@@ -113,7 +125,18 @@ func managedSCIMMembershipWork(t *testing.T, f *orgFixture, p *managedSCIMMember
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.command, err = identity.NewFeatureCommand(identity.FeatureCommandSpec{Binding: binding, Operation: op, Fields: []identity.FeatureField{field}})
+	fields := []identity.FeatureField{field}
+	var userUpdate *kernel.SCIMUserUpdatePlan
+	if op.OperationID == "identity.scim.user-patch" {
+		schema := identity.AttributeSchema{ID: "scim-test-fields", Version: 1, Fields: []identity.FieldPolicy{{Name: "display", Kind: identity.AttributeString, Cardinality: identity.CardinalityScalar, Normalization: identity.NormalizeNone, InputPermission: identity.FieldWrite, OutputPermission: identity.FieldRead, WriteAuthorization: identity.FieldWriteSystem, Sensitivity: identity.SensitivityPersonal, MigrationVersion: 1}}}
+		prepared, err := kernel.SCIMUserUpdateFields(kernel.SCIMUserUpdateIntent{Binding: binding, SchemaID: schema.ID, SchemaVersion: schema.Version, ExpectedVersion: 1}, schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fields = append(fields, prepared...)
+		userUpdate = &kernel.SCIMUserUpdatePlan{ExpectedVersion: 1}
+	}
+	p.command, err = identity.NewFeatureCommand(identity.FeatureCommandSpec{Binding: binding, Operation: op, Fields: fields})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +153,7 @@ func managedSCIMMembershipWork(t *testing.T, f *orgFixture, p *managedSCIMMember
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := coordinator.PrepareCommandPlan(binding, p.command, kernel.CommandPlan{Contributors: registry.Descriptors(), Feature: &kernel.FeatureRegistration{Contributor: p.Descriptor(), Operation: op}, SubjectType: subject, Lifecycle: &kernel.LifecyclePlan{EventType: "scim.user_deleted.v1", BeforeVersion: p.projectionVersion, AfterVersion: p.projectionVersion + 1}, Audits: []kernel.AuditPlan{{EventType: op.OperationID, SchemaVersion: 1, BindingDigest: digest, RetentionPolicyVersion: 1, RequiredRecordCount: 1, MaxRecordBytes: 16384, MaxAggregateBytes: 16384, RetentionClass: "protected", Required: true}}})
+	plan, err := coordinator.PrepareCommandPlan(binding, p.command, kernel.CommandPlan{Contributors: registry.Descriptors(), Feature: &kernel.FeatureRegistration{Contributor: p.Descriptor(), Operation: op}, SCIMUserUpdate: userUpdate, SubjectType: subject, Lifecycle: &kernel.LifecyclePlan{EventType: event, BeforeVersion: p.projectionVersion, AfterVersion: p.projectionVersion + 1}, Audits: []kernel.AuditPlan{{EventType: op.OperationID, SchemaVersion: 1, BindingDigest: digest, RetentionPolicyVersion: 1, RequiredRecordCount: 1, MaxRecordBytes: 16384, MaxAggregateBytes: 16384, RetentionClass: "protected", Required: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}

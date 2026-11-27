@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Allow the original advancing managed SCIM User PATCH deactivation Work to
+  withdraw its exact directory membership source. Its field commitment is
+  distinct from UserDelete; no schema, global status or other source changes.
+
 - Withdraw an exact current-incarnation membership source inside the original
   managed SCIM UserDelete Work. Locked absent/retired no-ops preserve local,
   replaced and other-source grants; the independent SCIM projection lifecycle

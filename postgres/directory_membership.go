@@ -214,8 +214,8 @@ func requireDirectoryMembershipBinding(w kernel.Work, owner kernel.FeatureExecut
 	descriptor := kernel.ContributorDescriptor{Owner: "sso/postgres", ContractID: op.SchemaID, Version: 1}
 	before, after := update.BeforeVersion(), update.AfterVersion()
 	if managed := update.state.managedSCIM; managed != nil {
-		op = managedSCIMMembershipOperation()
-		descriptor = kernel.ContributorDescriptor{Owner: "scim/postgres", ContractID: "identity.scim.managed", Version: 1}
+		expected := managed.registration()
+		op, descriptor = expected.Operation, expected.Contributor
 		before, after = managed.projectionVersion, managed.projectionVersion+1
 	}
 	if registration.Contributor != descriptor || registration.Operation != op ||

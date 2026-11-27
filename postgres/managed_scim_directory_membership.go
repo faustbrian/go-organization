@@ -16,6 +16,7 @@ import (
 type managedSCIMMembershipWithdrawal struct {
 	contributionActive bool
 	projectionVersion  uint64
+	deactivation       bool
 }
 
 // ManagedSCIMOrganizationVersion returns the exact provisional organization
@@ -43,6 +44,20 @@ func (e DirectoryMembershipEffect) ManagedSCIMOrganizationVersion() (uint64, boo
 // nothing. The source owner must fence directory authority before the canonical
 // organization lock, then its connection, mapping and original User projection.
 func NewManagedSCIMMembershipWithdrawal(i DirectoryMembershipInput, contributionActive bool, expectedProjectionVersion uint64) (DirectoryMembershipUpdate, error) {
+	return newManagedSCIMMembershipWithdrawal(i, contributionActive, expectedProjectionVersion, false)
+}
+
+// NewManagedSCIMMembershipDeactivation freezes the same exact-current-source
+// withdrawal for an advancing managed User PATCH which makes the projection
+// inactive. Its field commitment is distinct from UserDelete. The original
+// native PATCH Work must bind the source, subject, actor and exact projection
+// successor. The caller owns validating and applying the inactive projection
+// in that same Work. Construction neither establishes authority nor writes.
+func NewManagedSCIMMembershipDeactivation(i DirectoryMembershipInput, contributionActive bool, expectedProjectionVersion uint64) (DirectoryMembershipUpdate, error) {
+	return newManagedSCIMMembershipWithdrawal(i, contributionActive, expectedProjectionVersion, true)
+}
+
+func newManagedSCIMMembershipWithdrawal(i DirectoryMembershipInput, contributionActive bool, expectedProjectionVersion uint64, deactivation bool) (DirectoryMembershipUpdate, error) {
 	if !i.Source.validate() || !scope(string(i.ActorID)) || i.Action != DirectoryMembershipWithdraw || i.User != (identity.User{}) ||
 		i.Organization.Validate(i.Source.organizationQuery(), time.Now().UTC()) != nil ||
 		(i.MemberVersion == 0) != (i.MemberAuthorizationVersion == 0) ||
@@ -59,15 +74,26 @@ func NewManagedSCIMMembershipWithdrawal(i DirectoryMembershipInput, contribution
 	if err != nil {
 		return DirectoryMembershipUpdate{}, organization.ErrInvalidInput
 	}
+	domain := "organization.directory-membership.managed-scim-withdrawal.v1"
+	if deactivation {
+		domain = "organization.directory-membership.managed-scim-deactivation.v1"
+	}
 	return DirectoryMembershipUpdate{state: &directoryMembershipUpdateState{
 		input: i, recordID: string(i.Source.ResourceID),
-		digest:      directoryMembershipDigest("organization.directory-membership.managed-scim-withdrawal.v1", wire),
-		managedSCIM: &managedSCIMMembershipWithdrawal{contributionActive: contributionActive, projectionVersion: expectedProjectionVersion},
+		digest:      directoryMembershipDigest(domain, wire),
+		managedSCIM: &managedSCIMMembershipWithdrawal{contributionActive: contributionActive, projectionVersion: expectedProjectionVersion, deactivation: deactivation},
 	}}, nil
 }
 
-func managedSCIMMembershipOperation() identity.FeatureOperation {
-	return identity.FeatureOperation{Owner: "scim", OperationID: "identity.scim.user-delete", SchemaID: "identity.scim.user-delete.managed-v1", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired, SubjectRequirement: identity.FeatureSubjectUser, VersionPolicy: identity.FeatureVersionSequential}
+func (m managedSCIMMembershipWithdrawal) registration() kernel.FeatureRegistration {
+	op := identity.FeatureOperation{Owner: "scim", OperationID: "identity.scim.user-delete", SchemaID: "identity.scim.user-delete.managed-v1", SchemaVersion: 1, RecordRequirement: identity.FeatureRecordRequired, SubjectRequirement: identity.FeatureSubjectUser, VersionPolicy: identity.FeatureVersionSequential}
+	descriptor := kernel.ContributorDescriptor{Owner: "scim/postgres", ContractID: "identity.scim.managed", Version: 1}
+	if m.deactivation {
+		op.OperationID, op.SchemaID = "identity.scim.user-patch", "identity.scim.user-patch.native-v1"
+		op.SubjectRequirement, op.VersionPolicy = 0, identity.FeatureVersionSequentialOrUnchanged
+		descriptor.ContractID = "identity.scim"
+	}
+	return kernel.FeatureRegistration{Contributor: descriptor, Operation: op}
 }
 
 func (r *Repository) applyManagedSCIMMembershipWithdrawal(ctx context.Context, w kernel.Work, scoped authority.AuthorityScope, p *directoryMembershipEffectState) (DirectoryMembershipEffect, error) {
